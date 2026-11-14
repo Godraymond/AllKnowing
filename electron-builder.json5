@@ -46,8 +46,8 @@
   "publish": [
     {
       "provider": "github",
-      "owner": "webadderall",
-      "repo": "Recordly",
+      "owner": "Godraymond",
+      "repo": "AllKnowing",
       "tagNamePrefix": "v",
       "publishAutoUpdate": true
     }

@@ -2,10 +2,15 @@
 # Builds Windows, macOS and Linux installers, then publishes them as a GitHub
 # release named after the version in package.json (v<version>). Bump the version
 # before running this for a new release; installed apps update from these releases.
+# Start it from the Actions tab, or by pushing a tag that matches the version
+# (git tag v1.4.2 && git push origin v1.4.2), which works without a browser.
 name: Build installers
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   contents: read
@@ -289,6 +294,10 @@ jobs:
           set -euo pipefail
           version="$(jq -r .version package.json)"
           tag="v${version}"
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [ "$GITHUB_REF_NAME" != "$tag" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match the version in package.json ($version)."
+            exit 1
+          fi
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha)"
             if [ "$tag_sha" != "$GITHUB_SHA" ]; then

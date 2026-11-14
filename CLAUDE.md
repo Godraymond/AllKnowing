@@ -16,7 +16,7 @@ This fork is based on the official Recordly **v1.4.0** release line (upstream co
 ## Releases
 
 1. Bump `version` in package.json (`npm version patch --no-git-tag-version`), commit, push.
-2. Run the **Build installers** workflow (Actions tab → Build installers → Run workflow), or push a matching tag: `git tag v<version> && git push origin v<version>`. The tag route needs no browser, so use it from cloud sessions.
+2. Run the **Build installers** workflow (Actions tab → Build installers → Run workflow). Cloud sessions can't start it themselves (the API refuses workflow dispatch and the git proxy refuses tag pushes), so use the person's browser or ask them to press it.
 3. It builds Windows (.exe), macOS (Intel and Apple Silicon .dmg/.zip) and Linux (.AppImage) and publishes them as GitHub release `v<version>`.
 
 Installed copies check this fork's releases for updates (`publish` in electron-builder.json5). Builds are unsigned, so Windows SmartScreen and macOS Gatekeeper warn on first open, and macOS auto-update won't work without signing.

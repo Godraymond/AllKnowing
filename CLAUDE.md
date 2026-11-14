@@ -20,3 +20,12 @@ This fork is based on the official Recordly **v1.4.0** release line (upstream co
 3. It builds Windows (.exe), macOS (Intel and Apple Silicon .dmg/.zip) and Linux (.AppImage) and publishes them as GitHub release `v<version>`.
 
 Installed copies check this fork's releases for updates (`publish` in electron-builder.json5). Builds are unsigned, so Windows SmartScreen and macOS Gatekeeper warn on first open, and macOS auto-update won't work without signing.
+
+## The AllKnowing assistant (`assistant/`)
+
+`assistant/index.html` is the meeting and 狼人杀 assistant: prep plan, live transcript with "what to say next" and a visual summary, minutes, follow-ups, Outlook calendar holds and email drafts. It runs as a claude.ai artifact, not inside the Electron app, because it relies on the artifact runtime: `dictation` (speech-to-text), `sample` (Claude), `db` (per-user storage), `mcp` (Microsoft 365: `outlook_calendar_search`, `outlook_create_event`, `outlook_create_draft`), `downloads` and `user`.
+
+- Live artifact: https://claude.ai/artifact/RLztYbj7DvF4Lm11eekJtd (slug `c5262278-7a8f-4515-8ac2-01b1c8e8d93e`).
+- To change it: edit `assistant/index.html`, run `npx biome lint assistant/index.html`, then republish that file to the same artifact. Keep the repo copy and the artifact in step.
+- Don't republish while the owner is in a live meeting or game: open copies of the page reload at their next quiet moment.
+- Data lives in the artifact's db under `data/users/<id>/home` (settings), `.../home/index/<id>`, `.../home/meetings/<id>` with transcripts in `.../meetings/<id>/parts/pNNN`, and `.../home/todos/<id>`.

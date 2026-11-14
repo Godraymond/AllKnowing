@@ -1,0 +1,2322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AllKnowing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=Noto+Sans+SC:wght@400;600;700&display=swap">
+<style>
+:root {
+  /* AllKnowing: a live meeting cockpit. Transcript left, what-to-say and the picture centre, details right. */
+  --bg: #f3f4f6;
+  --surface: #ffffff;
+  --surface-2: #eef0f3;
+  --ink: #14171c;
+  --muted: #5d6571;
+  --line: #dfe2e7;
+  --accent: #2346d4;
+  --accent-ink: #ffffff;
+  --accent-soft: #e7ebfc;
+  --live: #d9333a;
+  --good: #1e8449;
+  --warn: #9a6200;
+  --bad: #c33b2f;
+  --c1: #4338ca; --c1-bg: #eef0ff;
+  --c2: #0b7a91; --c2-bg: #e5f5f9;
+  --c3: #557a12; --c3-bg: #f0f6e2;
+  --c4: #9a5b00; --c4-bg: #fff3dc;
+  --bulb: #e0a400;
+  --font-display: "Bricolage Grotesque", "Source Sans 3", system-ui, sans-serif;
+  --font-body: "Source Sans 3", "Noto Sans SC", "PingFang SC", "PingFang TC", "Microsoft YaHei", "Microsoft JhengHei", system-ui, sans-serif;
+  --radius: 12px;
+  --shadow: 0 1px 2px rgb(20 23 28 / 0.06), 0 4px 16px rgb(20 23 28 / 0.05);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1014; --surface: #161a20; --surface-2: #1e232a; --ink: #e8ebef; --muted: #9aa3ae; --line: #2a3038;
+    --accent: #7189ff; --accent-ink: #0d1014; --accent-soft: #1d2546;
+    --live: #ff5c62; --good: #45c078; --warn: #e3a94a; --bad: #f06a5d;
+    --c1: #aab4ff; --c1-bg: #1d2042; --c2: #62d2e8; --c2-bg: #0e2a31; --c3: #b4d66a; --c3-bg: #1e2a10; --c4: #f4c261; --c4-bg: #2d220d;
+    --bulb: #f4c430;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1014; --surface: #161a20; --surface-2: #1e232a; --ink: #e8ebef; --muted: #9aa3ae; --line: #2a3038;
+  --accent: #7189ff; --accent-ink: #0d1014; --accent-soft: #1d2546;
+  --live: #ff5c62; --good: #45c078; --warn: #e3a94a; --bad: #f06a5d;
+  --c1: #aab4ff; --c1-bg: #1d2042; --c2: #62d2e8; --c2-bg: #0e2a31; --c3: #b4d66a; --c3-bg: #1e2a10; --c4: #f4c261; --c4-bg: #2d220d;
+  --bulb: #f4c430;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font-body); -webkit-font-smoothing: antialiased; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; line-height: 1.2; }
+button, input, select, textarea { font: inherit; color: inherit; }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+svg { flex: none; }
+
+/* top bar */
+.topbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 14px; padding: 10px 20px; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 9px; font-family: var(--font-display); font-weight: 800; font-size: 19px; letter-spacing: -0.01em; }
+.brand-mark { width: 28px; height: 28px; }
+.bm-bg { fill: var(--accent); }
+.bm-fg { stroke: var(--accent-ink); }
+.bm-dot { fill: var(--accent-ink); }
+.nav { display: flex; gap: 2px; flex-wrap: wrap; }
+.nav button { border: 0; background: transparent; padding: 7px 12px; border-radius: 8px; color: var(--muted); font-weight: 600; cursor: pointer; }
+.nav button:hover:not(:disabled) { color: var(--ink); }
+.nav button[aria-current="page"] { background: var(--accent-soft); color: var(--accent); }
+.nav button:disabled { opacity: .4; cursor: default; }
+.current { margin-left: auto; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.current-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 34ch; }
+
+/* building blocks */
+main { padding: 20px; max-width: 1480px; margin: 0 auto; }
+.view[hidden] { display: none !important; }
+.stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row.space { justify-content: space-between; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 14px; border-radius: 9px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-weight: 600; cursor: pointer; text-decoration: none; white-space: nowrap; line-height: 1.2; }
+.btn svg { width: 18px; height: 18px; }
+.btn:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.live { background: var(--live); border-color: var(--live); color: #fff; }
+.btn.small { padding: 5px 10px; font-size: 13px; border-radius: 7px; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.ghost:hover:not(:disabled) { color: var(--ink); border-color: var(--line); }
+.btn.big { padding: 11px 18px; font-size: 16px; border-radius: 11px; }
+.btn[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); min-width: 0; }
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.card-head h2 { font-size: 16px; }
+.eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.muted { color: var(--muted); }
+.small-text { font-size: 13px; }
+.empty { color: var(--muted); font-style: italic; margin: 6px 0; }
+.sub { font-family: var(--font-body); font-size: 14px; font-weight: 700; margin: 14px 0 4px; }
+.plain-list { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 4px; font-size: 14.5px; }
+.md p { margin: 0 0 8px; }
+.md p:last-child { margin-bottom: 0; }
+.md ul, .md ol { margin: 0 0 8px; padding-left: 20px; display: grid; gap: 3px; }
+.md h4 { font-family: var(--font-body); font-size: 14px; margin: 8px 0 4px; }
+.status-line { font-size: 13px; color: var(--muted); min-height: 1.4em; }
+.status-line.bad { color: var(--bad); }
+.status-line.ok { color: var(--good); }
+.status-line.busy::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 6px; animation: pulse 1.2s ease-in-out infinite; }
+
+/* forms */
+.form { display: grid; gap: 12px; }
+.field { display: grid; gap: 4px; min-width: 0; }
+.field > label, .field > .label { font-size: 13px; font-weight: 600; color: var(--muted); }
+.field input, .field select, .field textarea, .inp { width: 100%; padding: 9px 11px; border-radius: 9px; border: 1px solid var(--line); background: var(--surface); }
+.field textarea { min-height: 110px; resize: vertical; line-height: 1.45; }
+.field .hint { font-size: 12.5px; color: var(--muted); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
+.files { display: grid; gap: 6px; }
+.file-chip { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border: 1px dashed var(--line); border-radius: 8px; font-size: 13.5px; }
+
+/* home */
+.hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+.hero h1 { font-size: clamp(26px, 3.2vw, 36px); font-weight: 800; letter-spacing: -0.02em; }
+.hero p { margin: 6px 0 0; color: var(--muted); max-width: 62ch; }
+.home-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.mrow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 10px 2px; border-top: 1px solid var(--line); }
+.mrow:first-child { border-top: 0; }
+.mtitle { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; }
+.mtitle:hover { color: var(--accent); }
+.mode-badge { font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+.mode-badge.ww { background: color-mix(in srgb, var(--live) 14%, transparent); color: var(--live); }
+.mstatus { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+
+/* prep */
+.prep-grid { display: grid; grid-template-columns: minmax(340px, 0.9fr) minmax(0, 1.1fr); gap: 20px; align-items: start; }
+.plan { display: grid; gap: 12px; }
+.plan-sec h3 { font-family: var(--font-body); font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.plan-hero { font-size: 17px; font-weight: 600; }
+.agenda { width: 100%; border-collapse: collapse; font-size: 14px; }
+.agenda td, .agenda th { text-align: left; padding: 6px 8px; border-top: 1px solid var(--line); vertical-align: top; }
+.agenda th { font-size: 12px; color: var(--muted); font-weight: 700; border-top: 0; }
+.agenda .min { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); }
+.qa { display: grid; gap: 8px; }
+.qa div { border-left: 3px solid var(--line); padding-left: 10px; }
+.quote { font-size: 16px; padding: 10px 14px; border-radius: 10px; background: var(--accent-soft); }
+
+/* live */
+.live-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 16px; }
+.live-bar .spacer { flex: 1; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; background: var(--surface-2); color: var(--muted); white-space: nowrap; }
+.pill .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.pill.on { background: color-mix(in srgb, var(--live) 15%, transparent); color: var(--live); }
+.pill.on .dot { animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .25; } }
+.clock { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 18px; min-width: 4.5ch; }
+.select-sm { padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); font-size: 13.5px; max-width: 190px; }
+.live-grid { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(340px, 1.35fr) minmax(260px, 1fr); gap: 16px; align-items: start; }
+.transcript { height: min(60vh, 640px); overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; overscroll-behavior: contain; }
+.seg { font-size: 14.5px; line-height: 1.45; }
+.seg .meta { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
+.seg .sp { font-weight: 700; margin-right: 6px; }
+.seg.note { color: var(--warn); }
+.seg.event { text-align: center; color: var(--muted); font-size: 12.5px; font-weight: 700; letter-spacing: .04em; padding: 2px 0; }
+.partial { color: var(--muted); font-style: italic; min-height: 1.2em; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 10px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.chip.me { border-color: var(--accent); color: var(--accent); }
+.chip.me[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.chip.out { text-decoration: line-through; opacity: .55; }
+.chips-label { font-size: 12px; color: var(--muted); font-weight: 600; width: 100%; }
+.composer { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; margin-top: 10px; }
+.composer select, .composer input { padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--surface); min-width: 0; }
+.say { border: 2px solid var(--accent); }
+.say-now { background: var(--accent-soft); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+.say-opt { padding: 10px 0; border-top: 1px dashed var(--line); }
+.say-opt:first-child { border-top: 0; padding-top: 0; }
+.say-label { font-size: 12px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: .06em; }
+.say-line { font-size: 17px; line-height: 1.5; margin: 4px 0; }
+.say-why { font-size: 13px; color: var(--muted); flex: 1; min-width: 12ch; }
+.stage { display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: var(--surface-2); color: var(--muted); }
+.situation { font-size: 15.5px; margin: 8px 0 0; }
+.watch { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.watch li { border-left: 3px solid var(--warn); padding: 5px 10px; background: color-mix(in srgb, var(--warn) 11%, transparent); border-radius: 0 8px 8px 0; font-size: 14px; }
+.topics { display: grid; gap: 12px; }
+.topic h3 { font-family: var(--font-body); font-size: 14.5px; font-weight: 700; }
+.banner { padding: 10px 14px; border-radius: 10px; background: color-mix(in srgb, var(--warn) 13%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 12px; font-size: 14px; }
+
+/* seat board */
+.seats { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.seat { border: 1px solid var(--line); border-radius: 10px; padding: 8px; background: var(--surface); display: grid; gap: 4px; align-content: start; }
+.seat .num { font-family: var(--font-display); font-weight: 800; font-size: 18px; }
+.seat .tag { font-size: 11.5px; font-weight: 700; }
+.seat.wolf { border-color: color-mix(in srgb, var(--bad) 60%, var(--line)); background: color-mix(in srgb, var(--bad) 9%, var(--surface)); color: var(--ink); }
+.seat.wolf .tag, .seat.wolf .conf i { color: var(--bad); }
+.seat.good { border-color: color-mix(in srgb, var(--good) 55%, var(--line)); background: color-mix(in srgb, var(--good) 8%, var(--surface)); }
+.seat.good .tag, .seat.good .conf i { color: var(--good); }
+.seat.me { outline: 2px solid var(--accent); outline-offset: -1px; }
+.seat.me .tag { color: var(--accent); }
+.seat.out { opacity: .5; }
+.seat.out .num { text-decoration: line-through; }
+.seat .claim { font-size: 12px; font-weight: 700; }
+.seat .conf { height: 4px; border-radius: 4px; background: var(--surface-2); overflow: hidden; color: var(--muted); }
+.seat .conf i { display: block; height: 100%; background: currentColor; }
+.seat .note { font-size: 12px; color: var(--muted); line-height: 1.3; }
+.verdicts { display: grid; gap: 8px; margin-top: 12px; }
+.verdict { display: grid; gap: 2px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); }
+.verdict strong { font-size: 17px; }
+
+/* visual summary */
+.vs { display: grid; gap: 14px; }
+.vs-label { justify-self: start; font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; padding: 3px 8px; border-radius: 6px; background: var(--surface-2); color: var(--muted); }
+.vs-title { font-family: var(--font-body); font-weight: 700; font-size: 22px; letter-spacing: -0.01em; }
+.vs-core { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; background: var(--surface-2); border-radius: 12px; padding: 14px 16px; }
+.vs-core-head { display: flex; align-items: center; gap: 6px; font-weight: 700; white-space: nowrap; }
+.vs-core-head svg { width: 18px; height: 18px; color: var(--bulb); }
+.vs-core ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.vs-sub { font-weight: 700; font-size: 17px; }
+.vs-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.vs-card { border-radius: 12px; padding: 6px; background: var(--k-bg); display: flex; flex-direction: column; }
+.vs-card header { display: flex; align-items: center; gap: 8px; padding: 8px 10px 10px; color: var(--k); font-weight: 700; font-size: 15.5px; }
+.vs-card header svg { width: 18px; height: 18px; }
+.vs-card-body { background: var(--surface); border-radius: 9px; padding: 12px 14px; flex: 1; }
+.vs-card-sub { font-weight: 700; margin: 0 0 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--line); }
+.vs-card ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 14px; }
+.vs-card.k1 { --k: var(--c1); --k-bg: var(--c1-bg); }
+.vs-card.k2 { --k: var(--c2); --k-bg: var(--c2-bg); }
+.vs-card.k3 { --k: var(--c3); --k-bg: var(--c3-bg); }
+.vs-card.k4 { --k: var(--c4); --k-bg: var(--c4-bg); }
+.vs-foot { justify-self: end; font-size: 12px; color: var(--muted); }
+
+/* minutes and follow-ups */
+.after-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.span-2 { grid-column: 1 / -1; }
+.actions-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.actions-table td, .actions-table th { text-align: left; padding: 7px 8px; border-top: 1px solid var(--line); vertical-align: top; }
+.actions-table th { font-size: 12px; color: var(--muted); font-weight: 700; border-top: 0; }
+.prio { font-size: 11px; font-weight: 800; color: var(--bad); text-transform: uppercase; letter-spacing: .06em; margin-left: 6px; }
+pre.email { white-space: pre-wrap; font: inherit; margin: 0; background: var(--surface-2); padding: 12px 14px; border-radius: 10px; }
+details > summary { cursor: pointer; font-weight: 700; }
+.todo { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 10px 2px; border-top: 1px solid var(--line); }
+.todo input[type="checkbox"] { width: 18px; height: 18px; margin-top: 3px; }
+.todo.done .todo-task { text-decoration: line-through; color: var(--muted); }
+.todo-meta { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); align-items: center; margin-top: 2px; }
+.todo-meta input[type="date"] { padding: 2px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 12.5px; }
+.due-bad { color: var(--bad); font-weight: 700; }
+.group-title { margin: 16px 0 2px; }
+.add-todo { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; }
+
+/* modal and toasts */
+.overlay { position: fixed; inset: 0; background: rgb(10 12 16 / .45); display: grid; place-items: center; padding: 16px; z-index: 50; }
+.modal { width: min(580px, 100%); max-height: calc(100% - 32px); overflow: auto; background: var(--surface); border-radius: 14px; border: 1px solid var(--line); padding: 18px; box-shadow: 0 20px 60px rgb(0 0 0 / .3); display: grid; gap: 12px; }
+.modal h2 { font-size: 18px; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.ev-list { display: grid; gap: 6px; max-height: 50vh; overflow: auto; }
+.ev { display: grid; gap: 2px; text-align: left; padding: 9px 11px; border-radius: 9px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; }
+.ev:hover { border-color: var(--accent); }
+.ev .when { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+#toasts { position: fixed; right: 16px; bottom: 16px; display: grid; gap: 8px; z-index: 60; max-width: min(440px, calc(100% - 32px)); }
+.toast { background: var(--ink); color: var(--surface); padding: 10px 14px; border-radius: 10px; font-size: 14px; box-shadow: var(--shadow); }
+.toast.warn { background: var(--warn); color: #fff; }
+.toast.bad { background: var(--bad); color: #fff; }
+.toast.good { background: var(--good); color: #fff; }
+
+@media (max-width: 1180px) {
+  .live-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .col-detail { grid-column: 1 / -1; }
+}
+@media (max-width: 900px) {
+  .home-grid, .prep-grid, .after-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  main { padding: 14px; }
+  .topbar { padding: 8px 14px; gap: 8px; }
+  .current { margin-left: 0; width: 100%; }
+  .live-grid { grid-template-columns: minmax(0, 1fr); }
+  .col-assist { order: -1; }
+  .transcript { height: 46vh; }
+  .two, .three { grid-template-columns: minmax(0, 1fr); }
+  .vs-core { grid-template-columns: minmax(0, 1fr); }
+  .mrow { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .mrow .mstatus { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pill.on .dot, .status-line.busy::before { animation: none; }
+}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect class="bm-bg" width="32" height="32" rx="9"/><path class="bm-fg" d="M6 16c3-5 6.5-7.5 10-7.5S23 11 26 16c-3 5-6.5 7.5-10 7.5S9 21 6 16z" fill="none" stroke-width="2"/><circle class="bm-dot" cx="16" cy="16" r="3.4"/></svg>
+    AllKnowing
+  </div>
+  <nav class="nav" aria-label="Sections">
+    <button type="button" data-route="home">Home</button>
+    <button type="button" data-route="prep">Prepare</button>
+    <button type="button" data-route="live">Live</button>
+    <button type="button" data-route="after">Minutes</button>
+    <button type="button" data-route="todos">Follow-ups</button>
+  </nav>
+  <div class="current" id="currentBox"></div>
+</header>
+<main>
+  <div id="globalBanner"></div>
+  <section class="view" id="view-home" aria-label="Home"></section>
+  <section class="view" id="view-prep" aria-label="Prepare" hidden></section>
+  <section class="view" id="view-live" aria-label="Live" hidden></section>
+  <section class="view" id="view-after" aria-label="Minutes" hidden></section>
+  <section class="view" id="view-todos" aria-label="Follow-ups" hidden></section>
+</main>
+<div id="toasts" aria-live="polite"></div>
+
+<script>
+(() => {
+"use strict";
+
+/* ---------- small helpers ---------- */
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  if (attrs) {
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v == null || v === false) continue;
+      if (k === "class") el.className = v;
+      else if (k === "html") el.innerHTML = v;
+      else if (k === "dataset") Object.assign(el.dataset, v);
+      else if (k.startsWith("on") && typeof v === "function") el.addEventListener(k.slice(2), v);
+      else if (k === "value") el.value = v;
+      else if (k === "checked") el.checked = !!v;
+      else if (v === true) el.setAttribute(k, "");
+      else el.setAttribute(k, String(v));
+    }
+  }
+  for (const kid of kids.flat(Infinity)) {
+    if (kid == null || kid === false) continue;
+    el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+function md(text) {
+  const lines = String(text || "").replace(/\r/g, "").split("\n");
+  let html = "", list = null, para = [];
+  const flushPara = () => { if (para.length) { html += `<p>${para.map(inline).join("<br>")}</p>`; para = []; } };
+  const flushList = () => { if (list) { html += `<${list.tag}>${list.items.map((i) => `<li>${inline(i)}</li>`).join("")}</${list.tag}>`; list = null; } };
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (!line.trim()) { flushPara(); flushList(); continue; }
+    const head = line.match(/^\s*#{1,4}\s+(.*)$/);
+    if (head) { flushPara(); flushList(); html += `<h4>${inline(head[1])}</h4>`; continue; }
+    const bullet = line.match(/^\s*[-*•]\s+(.*)$/);
+    if (bullet) { flushPara(); if (!list || list.tag !== "ul") { flushList(); list = { tag: "ul", items: [] }; } list.items.push(bullet[1]); continue; }
+    const num = line.match(/^\s*\d+[.)]\s+(.*)$/);
+    if (num) { flushPara(); if (!list || list.tag !== "ol") { flushList(); list = { tag: "ol", items: [] }; } list.items.push(num[1]); continue; }
+    flushList(); para.push(line);
+  }
+  flushPara(); flushList();
+  return html;
+}
+const stripMd = (s) => String(s || "").replace(/\*\*(.+?)\*\*/g, "$1").replace(/^\s*#{1,4}\s+/gm, "");
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const pad = (n) => String(n).padStart(2, "0");
+function fmtClock(sec) {
+  sec = Math.max(0, Math.floor(Number(sec) || 0));
+  const hh = Math.floor(sec / 3600), mm = Math.floor((sec % 3600) / 60), ss = sec % 60;
+  return hh ? `${hh}:${pad(mm)}:${pad(ss)}` : `${pad(mm)}:${pad(ss)}`;
+}
+function fmtDuration(sec) {
+  const m = Math.round((Number(sec) || 0) / 60);
+  if (m < 60) return `${m} min`;
+  return `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+const clockTime = (ms = Date.now()) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const fmtDate = (ms) => (ms ? new Date(ms).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "");
+function localISODate(d = new Date()) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+function localISODateTime(d) { return `${localISODate(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`; }
+function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+const obj = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
+const str = (v, max = 2000) => (typeof v === "string" ? v : v == null ? "" : typeof v === "number" ? String(v) : "").trim().slice(0, max);
+const arr = (v, max = 50) => (Array.isArray(v) ? v : []).slice(0, max);
+const strArr = (v, max = 12, len = 400) => arr(v, max).map((x) => (typeof x === "string" ? x : x && typeof x === "object" ? str(x.text || x.point || x.item || Object.values(x).find((y) => typeof y === "string"), len) : str(x, len))).map((x) => str(x, len)).filter(Boolean);
+const clampNum = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(Number(v) || 0)));
+const clone = (v) => JSON.parse(JSON.stringify(v ?? null));
+const enc = new TextEncoder();
+const bytes = (s) => enc.encode(s).length;
+function tailByBytes(s, max) {
+  s = String(s || "");
+  if (bytes(s) <= max) return s;
+  let lo = 0, hi = s.length;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (bytes(s.slice(mid)) > max) lo = mid + 1; else hi = mid; }
+  const cut = s.slice(lo);
+  const nl = cut.indexOf("\n");
+  return "…(earlier part trimmed)\n" + (nl > -1 && nl < 400 ? cut.slice(nl + 1) : cut);
+}
+function headByBytes(s, max) {
+  s = String(s || "");
+  if (bytes(s) <= max) return s;
+  let lo = 0, hi = s.length;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (bytes(s.slice(0, mid)) > max) hi = mid - 1; else lo = mid; }
+  return s.slice(0, lo) + "…(trimmed)";
+}
+function safeLocalGet(k) { try { return localStorage.getItem("allknowing:" + k); } catch { return null; } }
+function safeLocalSet(k, v) { try { localStorage.setItem("allknowing:" + k, v); } catch { /* storage unavailable */ } }
+const normKey = (s) => String(s || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+const emailsIn = (s) => Array.from(new Set(String(s || "").match(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g) || []));
+const safeName = (s) => String(s || "untitled").replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").trim().slice(0, 80);
+
+const ICON = {
+  mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
+  stop: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
+  bulb: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a7 7 0 0 0-4 12.7V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.3A7 7 0 0 0 12 2zM9 20h6v1a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-1z"/></svg>',
+  list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6h10M10 12h10M10 18h10"/><path d="M3.5 6l1.5 1.5L7.5 5M3.5 12l1.5 1.5 2.5-2.5M3.5 18l1.5 1.5 2.5-2.5"/></svg>',
+  history: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>',
+  tag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>',
+  flag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V4"/><path d="M4 4h12l-2 4 2 4H4"/></svg>',
+};
+const CARD_ICONS = [ICON.list, ICON.history, ICON.tag, ICON.flag];
+
+/* ---------- constants ---------- */
+const SERVER = "Microsoft 365";
+const PART_SIZE = 80;
+const LIVE_TRANSCRIPT_BYTES = 18000;
+const MINUTES_TRANSCRIPT_BYTES = 190000;
+const AUTO_MIN_CHARS = 300;
+const ROUTES = ["home", "prep", "live", "after", "todos"];
+const ROLES = ["村民 Villager", "狼人 Werewolf", "预言家 Seer", "女巫 Witch", "猎人 Hunter", "守卫 Guard", "白痴 Idiot", "狼王 Wolf King", "白狼王 White Wolf King", "骑士 Knight", "丘比特 Cupid", "其他 Other"];
+const BOARDS = [
+  { id: "12-yngb", label: "12人 预女猎白 · 4狼 预言家 女巫 猎人 白痴 4民", players: 12 },
+  { id: "12-yngs", label: "12人 预女猎守 · 4狼 预言家 女巫 猎人 守卫 4民", players: 12 },
+  { id: "9-std", label: "9人 · 3狼 预言家 女巫 猎人 3民", players: 9 },
+  { id: "6-std", label: "6人 · 2狼 预言家 女巫 2民", players: 6 },
+  { id: "custom", label: "Custom: describe it below", players: 0 },
+];
+const DICT_LANGS = [["", "Auto (browser language)"], ["en", "English"], ["zh", "中文 普通话"], ["zh-HK", "粵語 Cantonese"], ["zh-TW", "國語 (台灣)"]];
+const AI_LANGS = [["match", "Match the conversation"], ["en", "English"], ["zh-Hans", "简体中文"], ["zh-Hant", "繁體中文"]];
+const MEETING_LANGS = [["match", "Mixed / not sure"], ["en", "English"], ["zh", "普通话 Mandarin"], ["yue", "粵語 Cantonese"]];
+const TABLE_LANGS = [["zh", "普通话 Mandarin"], ["yue", "粵語 Cantonese"], ["en", "English"]];
+const langName = (code) => (MEETING_LANGS.find(([c]) => c === code) || MEETING_LANGS[0])[1];
+const tableLangName = (code) => (TABLE_LANGS.find(([c]) => c === code) || TABLE_LANGS[0])[1];
+
+const EXAMPLE_VISUAL = {
+  title: "Product Launch Timeline Review",
+  conclusions: ["Launch moves to **mid-March** so the pilot can finish first", "Marketing spend stays frozen until **pilot results** are in", "Pricing holds at the **standard tier**; no early discount"],
+  cards: [
+    { title: "Before launch", subtitle: "Finish the pilot first", bullets: ["Pilot runs with **3 customers** through February", "Support scripts drafted by **Ops**", "Sign-off needs the **security review**"] },
+    { title: "What happened last time", subtitle: "", bullets: ["Last launch slipped **6 weeks** on supplier delays", "Early discount cut margin to **18%**", "Most churn came in the **first 60 days**"] },
+    { title: "Pricing call", subtitle: "Hold the line", bullets: ["Standard tier at **$49/month**", "Annual plan gets **2 months free**", "Revisit after **100 paying users**"] },
+  ],
+};
+
+const LIVE_MEETING_SHAPE = `{
+  "title": "short meeting title",
+  "stage": "where the meeting is now, 2-5 words",
+  "situation": "2-3 sentences: what the meeting is about, where things stand, each side's position or mood",
+  "discussed": [{"topic": "topic", "points": ["point"]}],
+  "decisions": ["decision"],
+  "open_questions": ["question"],
+  "actions": [{"task": "task", "owner": "who", "due": "when, if said"}],
+  "visual": {"title": "headline", "conclusions": ["conclusion"], "cards": [{"title": "heading", "subtitle": "takeaway", "bullets": ["point"]}]},
+  "say_next": [{"label": "2-4 words", "line": "exact words to say", "why": "short reason"}],
+  "watch_out": ["risk"]
+}`;
+const LIVE_GAME_SHAPE = `{
+  "phase": "current phase, e.g. 第1天白天发言",
+  "situation": "2-3 sentences on where the game stands and what matters now",
+  "players": [{"seat": 1, "status": "alive|out|unknown", "claim": "role claimed, or empty", "read": "wolf|good|unsure|me", "confidence": 50, "note": "short reason"}],
+  "events": ["key fact in order: deaths, claims, checks, votes"],
+  "visual": {"title": "headline", "conclusions": ["conclusion"], "cards": [{"title": "heading", "subtitle": "takeaway", "bullets": ["point"]}]},
+  "say_next": [{"label": "2-4 words", "line": "speech to read out", "why": "short reason"}],
+  "vote": {"seat": 0, "why": "reason"},
+  "night": "night action advice, or empty",
+  "watch_out": ["what not to reveal, traps, likely lies"]
+}`;
+const PREP_MEETING_SHAPE = `{
+  "title": "short meeting title",
+  "objective": "one sentence",
+  "success": "what a good outcome looks like",
+  "agenda": [{"item": "agenda item", "minutes": 10, "aim": "what to get from it"}],
+  "key_messages": ["message"],
+  "questions_to_ask": ["question"],
+  "their_questions": [{"q": "question they may ask", "a": "suggested answer"}],
+  "numbers": ["figure to have ready"],
+  "risks": ["risk"],
+  "red_lines": ["what not to agree to or say"],
+  "opening": "suggested opening words",
+  "people": [{"name": "person", "angle": "what they care about and how to handle them"}]
+}`;
+const PREP_GAME_SHAPE = `{
+  "title": "short title",
+  "role_goal": "what the user's role must achieve",
+  "day1_speech": "ready-to-say first-day speech",
+  "reveal": "when and how to reveal the role, or not",
+  "night_policy": "how to use night actions",
+  "watch_for": ["tell or pattern to watch"],
+  "traps": ["mistake to avoid"],
+  "tips": ["board-specific tip"]
+}`;
+const minutesShape = (zh) => `{
+  "title": "meeting title",
+  "summary": "3-5 sentences",
+  "key_points": ["point"],
+  "decisions": ["decision"],
+  "actions": [{"task": "task", "owner": "who", "due": "YYYY-MM-DD or empty", "priority": "high|normal"}],
+  "open_questions": ["question"],
+  "follow_up_email": {"subject": "subject", "body": "plain text body"},
+  "visual": {"title": "headline", "conclusions": ["conclusion"], "cards": [{"title": "heading", "subtitle": "takeaway", "bullets": ["point"]}]}${zh ? `,
+  "zh_hant": {"summary": "...", "key_points": ["..."], "decisions": ["..."], "actions": [{"task": "...", "owner": "...", "due": "..."}]}` : ""}
+}`;
+const RECAP_SHAPE = `{
+  "title": "game title",
+  "result": "who won, or unknown",
+  "summary": "3-5 sentences",
+  "timeline": ["what happened, in order"],
+  "key_moments": ["turning point"],
+  "my_play": ["what the user did well or badly"],
+  "next_time": ["what to do differently"],
+  "visual": {"title": "headline", "conclusions": ["conclusion"], "cards": [{"title": "heading", "subtitle": "takeaway", "bullets": ["point"]}]}
+}`;
+
+/* ---------- state ---------- */
+const state = {
+  route: "home",
+  booted: false,
+  settings: { myName: "", aiLang: "match", liveTier: "default", auto: true, autoEvery: 60, dictLang: "", zhMinutes: true },
+  meetings: [],
+  todos: [],
+  listsLoaded: false,
+  cur: null,
+  // live runtime
+  dictState: "idle",
+  partial: "",
+  speaker: "",
+  openSegId: null,
+  lastFinalAt: 0,
+  segEls: new Map(),
+  dirtySegs: false,
+  dirtyFrom: Infinity,
+  dirtyMeeting: false,
+  clockId: null,
+  aiBusy: false,
+  aiCtl: null,
+  aiBlocked: false,
+  autoPausedUntil: 0,
+  lastAnalysisAt: 0,
+  lastAnalyzedChars: 0,
+  sayNow: null,
+  sayCtl: null,
+  markOut: false,
+  listenNote: "",
+  prepImages: [],
+  imagesOK: false,
+  todoFilter: "open",
+  minutesBusy: false,
+};
+const cap = { db: null, user: null, sample: null, dict: null, mcp: null, downloads: null };
+
+/* ---------- toasts and modals ---------- */
+function toast(msg, kind = "info", ms = 4500) {
+  const t = h("div", { class: `toast ${kind}`, role: "status" }, msg);
+  $("#toasts").append(t);
+  setTimeout(() => t.remove(), ms);
+}
+function modal(title, body, actions) {
+  const prevFocus = document.activeElement;
+  const box = h("div", { class: "modal", role: "dialog", "aria-modal": "true", "aria-label": title }, h("h2", null, title), body, h("div", { class: "modal-actions" }, actions));
+  const overlay = h("div", { class: "overlay" }, box);
+  const close = () => { overlay.remove(); document.removeEventListener("keydown", onKey); if (prevFocus && prevFocus.focus) prevFocus.focus(); };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) close(); });
+  document.addEventListener("keydown", onKey);
+  document.body.append(overlay);
+  const first = box.querySelector("input, textarea, select, button");
+  if (first) first.focus();
+  return { close, box };
+}
+function setBanner(html) { const b = $("#globalBanner"); if (b) b.innerHTML = html ? `<div class="banner">${html}</div>` : ""; }
+async function copy(text) {
+  try { await navigator.clipboard.writeText(text); toast("Copied.", "good", 1800); }
+  catch { toast("Couldn't copy. Select the text and copy it yourself.", "warn"); }
+}
+const copyBtn = (text, label = "Copy") => h("button", { type: "button", class: "btn small ghost", onclick: () => copy(text) }, label);
+
+/* ---------- capabilities ---------- */
+async function useCap(name) {
+  try {
+    const c = window.claude;
+    return c && typeof c.use === "function" ? await c.use(name) : null;
+  } catch { return null; }
+}
+async function initCaps() {
+  const names = ["db", "user", "sample", "dictation", "mcp", "downloads"];
+  const got = await Promise.all(names.map(useCap));
+  cap.db = got[0]; cap.user = got[1]; cap.sample = got[2]; cap.dict = got[3]; cap.mcp = got[4]; cap.downloads = got[5];
+}
+
+/* ---------- storage: claude.ai db, or this browser as a fallback ---------- */
+const P = { mode: "local", homeRef: null, idxCol: null, mtgCol: null, todoCol: null, local: { meetings: {}, index: {}, todos: {}, parts: {}, settings: {} } };
+const chains = new Map();
+function serial(key, fn) {
+  const next = (chains.get(key) || Promise.resolve()).catch(() => null).then(fn);
+  chains.set(key, next);
+  return next;
+}
+function localLoad() { try { const raw = localStorage.getItem("allknowing:v1"); if (raw) Object.assign(P.local, JSON.parse(raw)); } catch { /* ignore */ } }
+function localSave() { try { localStorage.setItem("allknowing:v1", JSON.stringify(P.local)); } catch { /* ignore */ } }
+let lastDbToast = 0;
+function dbErr(e) {
+  console.warn("db", e);
+  const code = e?.code || "unavailable";
+  const now = Date.now();
+  if (now - lastDbToast < 8000) return;
+  lastDbToast = now;
+  if (code === "quota_exceeded") toast("Storage is full. Delete some old meetings to keep saving.", "bad", 8000);
+  else if (code === "revoked") setBanner("Saving stopped because access to AllKnowing changed. Reload the page.");
+  else if (code === "resource_exhausted") toast("Saving is busy. It will catch up in a moment.", "warn");
+  else toast(`Couldn't save just now (${code}). It will retry.`, "warn");
+}
+async function initStore() {
+  if (cap.db && cap.user) {
+    try {
+      const id = await cap.user.id();
+      if (id) {
+        P.homeRef = cap.db.doc(`data/users/${id}/home`);
+        P.idxCol = P.homeRef.collection("index");
+        P.mtgCol = P.homeRef.collection("meetings");
+        P.todoCol = P.homeRef.collection("todos");
+        P.mode = "db";
+        return;
+      }
+    } catch (e) { console.warn(e); }
+  }
+  P.mode = "local";
+  localLoad();
+}
+async function loadSettings() {
+  let s = null;
+  if (P.mode === "db") {
+    try { const snap = await P.homeRef.get(); s = snap.exists ? obj(snap.data()).settings : null; } catch (e) { dbErr(e); }
+  } else s = P.local.settings;
+  Object.assign(state.settings, obj(s));
+  if (!state.settings.myName && cap.user) {
+    try { const me = await cap.user.me(); if (me && me.name) state.settings.myName = me.name.split(/\s+/)[0]; } catch { /* ignore */ }
+  }
+}
+let settingsTimer = null;
+function saveSettingsSoon() {
+  clearTimeout(settingsTimer);
+  settingsTimer = setTimeout(() => {
+    if (P.mode === "db") serial(P.homeRef.path, () => P.homeRef.set({ settings: clone(state.settings), updatedAt: Date.now() })).catch(dbErr);
+    else { P.local.settings = clone(state.settings); localSave(); }
+  }, 600);
+}
+function subscribeLists() {
+  if (P.mode === "db") {
+    let confirmed = false;
+    const timer = setTimeout(() => { if (!confirmed) setBanner("Can't reach your saved meetings yet. They'll appear when the connection comes back."); }, 10000);
+    P.idxCol.orderBy("updatedAt", "desc").limit(300).onSnapshot((snap) => {
+      if (!snap.metadata.fromCache && !confirmed) { confirmed = true; clearTimeout(timer); setBanner(""); }
+      state.meetings = snap.docs.map((d) => d.data()).filter(Boolean);
+      state.listsLoaded = true;
+      onListsChanged();
+    }, (e) => { clearTimeout(timer); dbErr(e); state.listsLoaded = true; onListsChanged(); });
+    P.todoCol.limit(1000).onSnapshot((snap) => {
+      state.todos = snap.docs.map((d) => d.data()).filter(Boolean);
+      onListsChanged();
+    }, dbErr);
+  } else {
+    state.meetings = Object.values(P.local.index).sort((a, b) => b.updatedAt - a.updatedAt);
+    state.todos = Object.values(P.local.todos);
+    state.listsLoaded = true;
+    onListsChanged();
+  }
+}
+function meetingDocData(m) {
+  const rest = {};
+  for (const [k, v] of Object.entries(m)) if (k !== "segs") rest[k] = v;
+  if (rest.prep && rest.prep.background && rest.prep.background.length > 20000) rest.prep = { ...rest.prep, background: rest.prep.background.slice(0, 20000) };
+  return clone(rest);
+}
+const indexData = (m) => ({ id: m.id, mode: m.mode, title: m.title || "", status: m.status, createdAt: m.createdAt, updatedAt: m.updatedAt, startedAt: m.startedAt || null });
+async function saveMeeting(m = state.cur) {
+  if (!m) return;
+  state.dirtyMeeting = false;
+  m.updatedAt = Date.now();
+  const data = meetingDocData(m), idx = indexData(m);
+  if (P.mode === "db") {
+    const ref = P.mtgCol.doc(m.id), iref = P.idxCol.doc(m.id);
+    await Promise.all([serial(ref.path, () => ref.set(data)), serial(iref.path, () => iref.set(idx))]).catch((e) => { state.dirtyMeeting = true; dbErr(e); });
+  } else {
+    P.local.meetings[m.id] = data;
+    P.local.index[m.id] = idx;
+    localSave();
+    state.meetings = Object.values(P.local.index).sort((a, b) => b.updatedAt - a.updatedAt);
+    onListsChanged();
+  }
+}
+function markSegDirty(i) { state.dirtySegs = true; state.dirtyFrom = Math.min(state.dirtyFrom, i); }
+async function saveSegs(m = state.cur) {
+  if (!m || !state.dirtySegs) return;
+  const from = Math.max(0, Math.min(state.dirtyFrom, m.segs.length - 1));
+  state.dirtySegs = false;
+  state.dirtyFrom = Infinity;
+  if (!m.segs.length) return;
+  const first = Math.floor(from / PART_SIZE), last = Math.floor((m.segs.length - 1) / PART_SIZE);
+  m.partCount = Math.max(m.partCount || 0, last + 1);
+  m.chars = txChars(m);
+  for (let p = first; p <= last; p++) {
+    const segs = clone(m.segs.slice(p * PART_SIZE, (p + 1) * PART_SIZE));
+    const id = "p" + String(p).padStart(3, "0");
+    if (P.mode === "db") {
+      const ref = P.mtgCol.doc(m.id).collection("parts").doc(id);
+      await serial(ref.path, () => ref.set({ segs })).catch((e) => { markSegDirty(p * PART_SIZE); dbErr(e); });
+    } else {
+      if (!P.local.parts[m.id]) P.local.parts[m.id] = {};
+      P.local.parts[m.id][id] = segs;
+    }
+  }
+  if (P.mode !== "db") localSave();
+  state.dirtyMeeting = true;
+}
+async function flushSaves() {
+  if (!state.cur) return;
+  if (state.dirtySegs) await saveSegs();
+  if (state.dirtyMeeting) await saveMeeting();
+}
+async function loadMeeting(id) {
+  let m;
+  if (P.mode === "db") {
+    const ref = P.mtgCol.doc(id);
+    const snap = await ref.get();
+    if (!snap.exists) return null;
+    m = clone(snap.data());
+    const parts = await ref.collection("parts").get();
+    m.segs = clone(parts.docs.flatMap((d) => arr(obj(d.data()).segs, PART_SIZE + 10)));
+  } else {
+    const data = P.local.meetings[id];
+    if (!data) return null;
+    m = clone(data);
+    const parts = P.local.parts[id] || {};
+    m.segs = Object.keys(parts).sort().flatMap((k) => parts[k]);
+  }
+  return normalizeMeeting(m);
+}
+async function deleteMeeting(id) {
+  if (P.mode === "db") {
+    const ref = P.mtgCol.doc(id);
+    try {
+      const parts = await ref.collection("parts").get();
+      for (const d of parts.docs) await ref.collection("parts").doc(d.id).delete();
+    } catch (e) { dbErr(e); }
+    await serial(ref.path, () => ref.delete()).catch(dbErr);
+    const iref = P.idxCol.doc(id);
+    await serial(iref.path, () => iref.delete()).catch(dbErr);
+  } else {
+    delete P.local.meetings[id]; delete P.local.index[id]; delete P.local.parts[id];
+    localSave();
+    state.meetings = Object.values(P.local.index).sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+  if (state.cur && state.cur.id === id) { state.cur = null; resetLiveRuntime(); }
+  onListsChanged();
+  renderCurrentBox();
+}
+async function saveTodo(t0) {
+  const t = { ...t0, updatedAt: Date.now() };
+  if (P.mode === "db") {
+    const ref = P.todoCol.doc(t.id);
+    await serial(ref.path, () => ref.set(clone(t))).catch(dbErr);
+  } else {
+    P.local.todos[t.id] = clone(t);
+    localSave();
+    state.todos = Object.values(P.local.todos);
+    onListsChanged();
+  }
+}
+async function removeTodo(id) {
+  if (P.mode === "db") {
+    const ref = P.todoCol.doc(id);
+    await serial(ref.path, () => ref.delete()).catch(dbErr);
+  } else {
+    delete P.local.todos[id];
+    localSave();
+    state.todos = Object.values(P.local.todos);
+    onListsChanged();
+  }
+}
+setInterval(() => {
+  if (!state.cur) return;
+  if (state.dirtySegs) saveSegs().then(() => { if (state.dirtyMeeting) saveMeeting(); });
+  else if (state.dirtyMeeting) saveMeeting();
+}, 8000);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushSaves(); });
+
+/* ---------- meetings ---------- */
+function normalizeMeeting(m) {
+  m.prep = { when: "", attendees: "", goal: "", background: "", lang: "match", files: [], ...obj(m.prep) };
+  m.prep.files = arr(m.prep.files, 10);
+  m.game = { players: 12, boardId: BOARDS[0].id, board: BOARDS[0].label, custom: "", seat: 1, role: ROLES[0], private: "", tableLang: "zh", out: [], ...obj(m.game) };
+  m.game.out = arr(m.game.out, 30).map(Number).filter((n) => n > 0);
+  m.segs = Array.isArray(m.segs) ? m.segs : [];
+  m.mode = m.mode === "werewolf" ? "werewolf" : "meeting";
+  m.status = m.status || "prep";
+  return m;
+}
+const titleOf = (m) => m.title || (m.mode === "werewolf" ? "狼人杀 game" : "Untitled meeting");
+const routeFor = (m) => (m.status === "done" ? "after" : m.status === "live" ? "live" : "prep");
+function resetLiveRuntime() {
+  const m = state.cur;
+  state.speaker = "";
+  state.openSegId = null;
+  state.partial = "";
+  state.lastAnalysisAt = 0;
+  state.lastAnalyzedChars = m ? txChars(m) : 0;
+  state.sayNow = null;
+  state.dirtyFrom = Infinity;
+  state.dirtySegs = false;
+  state.segEls = new Map();
+  state.markOut = false;
+  state.listenNote = "";
+  state.prepImages = [];
+  state.aiStatus = null;
+}
+function newMeeting(mode) {
+  if (isListening()) { toast("Stop listening before starting something new.", "warn"); return; }
+  flushSaves();
+  const now = Date.now();
+  const m = normalizeMeeting({ id: uid(), mode, title: mode === "werewolf" ? `狼人杀 ${new Date().toLocaleDateString()}` : "", createdAt: now, updatedAt: now, status: "prep", segs: [] });
+  state.cur = m;
+  resetLiveRuntime();
+  saveMeeting(m);
+  safeLocalSet("lastMeeting", m.id);
+  go("prep");
+}
+async function openMeeting(id, route) {
+  if (state.cur && state.cur.id === id) { go(route || routeFor(state.cur)); return; }
+  if (isListening()) { toast("Stop listening before switching.", "warn"); return; }
+  await flushSaves();
+  let m = null;
+  try { m = await loadMeeting(id); } catch (e) { dbErr(e); }
+  if (!m) { toast("Couldn't open that one. Try again in a moment.", "bad"); return; }
+  state.cur = m;
+  resetLiveRuntime();
+  safeLocalSet("lastMeeting", id);
+  go(route || routeFor(m));
+}
+const txChars = (m) => (m && m.segs ? m.segs.reduce((n, s) => n + (s.kind === "event" ? 0 : (s.text || "").length), 0) : 0);
+const myName = () => state.settings.myName || "the user";
+
+/* ---------- routing ---------- */
+function go(route) {
+  if (!ROUTES.includes(route)) route = "home";
+  state.route = route;
+  for (const sec of $$(".view")) sec.hidden = sec.id !== "view-" + route;
+  for (const b of $$(".nav button")) {
+    if (b.dataset.route === route) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+    b.disabled = ["prep", "live", "after"].includes(b.dataset.route) && !state.cur;
+  }
+  if (location.hash.slice(1) !== route) { try { history.replaceState(null, "", "#" + route); } catch { /* ignore */ } }
+  renderCurrentBox();
+  renderRoute();
+  window.scrollTo(0, 0);
+}
+function renderRoute() {
+  if (state.route === "home") renderHome();
+  else if (state.route === "prep") renderPrep();
+  else if (state.route === "live") renderLive();
+  else if (state.route === "after") renderAfter();
+  else if (state.route === "todos") renderTodos();
+}
+function onListsChanged() {
+  if (state.route === "home") renderHome();
+  else if (state.route === "todos") renderTodos();
+  else if (state.route === "after" && state.cur && state.cur.minutes) renderActionsTable();
+}
+function renderCurrentBox() {
+  const box = $("#currentBox");
+  if (!box) return;
+  box.replaceChildren();
+  const m = state.cur;
+  if (!m) return;
+  box.append(
+    h("span", { class: "mode-badge" + (m.mode === "werewolf" ? " ww" : "") }, m.mode === "werewolf" ? "狼人杀" : "Meeting"),
+    h("span", { class: "current-title", title: titleOf(m) }, titleOf(m)),
+  );
+  if (isListening()) box.append(h("span", { class: "pill on" }, h("span", { class: "dot" }), "Listening"));
+}
+
+/* ---------- empty states and shared bits ---------- */
+function startButtons() {
+  return h("div", { class: "row" },
+    h("button", { type: "button", class: "btn primary", onclick: () => newMeeting("meeting") }, "New meeting"),
+    h("button", { type: "button", class: "btn", onclick: () => newMeeting("werewolf") }, "New 狼人杀 game"));
+}
+function emptyView(text) { return h("div", { class: "card stack" }, h("p", { class: "muted" }, text), startButtons()); }
+function selectEl(id, options, value, onchange, cls = "") {
+  const s = h("select", { id, class: cls, onchange: (e) => onchange(e.target.value) }, options.map(([v, label]) => h("option", { value: v }, label)));
+  s.value = value ?? "";
+  return s;
+}
+
+/* ---------- visual summary ---------- */
+function renderVisual(v, label) {
+  if (!v || (!v.title && !(v.conclusions || []).length && !(v.cards || []).length)) {
+    return h("p", { class: "empty" }, "The visual summary builds here as the conversation goes.");
+  }
+  const root = h("div", { class: "vs" });
+  if (label) root.append(h("span", { class: "vs-label" }, label));
+  root.append(h("h3", { class: "vs-title" }, v.title || "Summary"));
+  if ((v.conclusions || []).length) {
+    root.append(h("div", { class: "vs-core" },
+      h("div", { class: "vs-core-head", html: ICON.bulb + "<span>Core conclusion</span>" }),
+      h("ul", null, v.conclusions.map((c) => h("li", { html: inline(c) })))));
+  }
+  if ((v.cards || []).length) {
+    root.append(h("div", { class: "vs-sub" }, "Core discussion items"));
+    root.append(h("div", { class: "vs-cards" }, v.cards.map((c, i) => h("article", { class: `vs-card k${(i % 4) + 1}` },
+      h("header", { html: CARD_ICONS[i % 4] + `<span>${esc(c.title)}</span>` }),
+      h("div", { class: "vs-card-body" },
+        c.subtitle ? h("p", { class: "vs-card-sub", html: inline(c.subtitle) }) : null,
+        (c.bullets || []).length ? h("ul", null, c.bullets.map((b) => h("li", { html: inline(b) }))) : null)))));
+  }
+  root.append(h("span", { class: "vs-foot" }, "AI-generated"));
+  return root;
+}
+
+/* ---------- home ---------- */
+function renderHome() {
+  const v = $("#view-home");
+  v.replaceChildren();
+  v.append(h("div", { class: "hero" },
+    h("div", null,
+      h("h1", null, "Meetings and games"),
+      h("p", null, "Give it the background and get a plan. During the meeting it listens, tells you what's going on and what to say next. Afterwards you get minutes, follow-ups and calendar holds.")),
+    startButtons()));
+
+  const recent = h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", null, "Recent"), h("span", { class: "muted small-text" }, P.mode === "db" ? "Saved to your claude.ai account" : "Saved in this browser only")));
+  if (!state.listsLoaded) recent.append(h("p", { class: "empty" }, "Loading your meetings…"));
+  else if (!state.meetings.length) recent.append(h("p", { class: "empty" }, "Nothing yet. Start a meeting or a 狼人杀 game above."));
+  else {
+    const list = h("div");
+    for (const m of state.meetings.slice(0, 40)) {
+      list.append(h("div", { class: "mrow" },
+        h("span", { class: "mode-badge" + (m.mode === "werewolf" ? " ww" : "") }, m.mode === "werewolf" ? "狼人杀" : "Meeting"),
+        h("button", { type: "button", class: "mtitle", onclick: () => openMeeting(m.id) }, m.title || (m.mode === "werewolf" ? "狼人杀 game" : "Untitled meeting")),
+        h("span", { class: "mstatus" }, `${m.status === "done" ? "Done" : m.status === "live" ? "Started" : "Preparing"} · ${fmtDate(m.startedAt || m.createdAt)}`),
+        h("button", { type: "button", class: "btn small ghost", "aria-label": "Delete " + (m.title || "meeting"), onclick: () => confirmDelete(m) }, "Delete")));
+    }
+    recent.append(list);
+  }
+
+  const open = state.todos.filter((t) => !t.done).sort(byDue).slice(0, 6);
+  const fu = h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", null, "Follow-ups"), h("button", { type: "button", class: "btn small", onclick: () => go("todos") }, "All follow-ups")));
+  if (!open.length) fu.append(h("p", { class: "empty" }, "Action items from your minutes land here."));
+  else fu.append(h("div", null, open.map((t) => todoRow(t, true))));
+
+  const settings = renderSettingsCard();
+  const right = h("div", { class: "stack" }, fu, settings);
+  const left = h("div", { class: "stack" }, recent);
+  if (state.listsLoaded && !state.meetings.length) left.append(h("div", { class: "card" }, renderVisual(EXAMPLE_VISUAL, "Example of a live visual summary")));
+  v.append(h("div", { class: "home-grid" }, left, right));
+}
+function confirmDelete(m) {
+  const md2 = modal("Delete this?", h("p", null, `“${m.title || "Untitled"}” and its transcript will be deleted. Follow-ups already created stay.`), [
+    h("button", { type: "button", class: "btn", onclick: () => md2.close() }, "Cancel"),
+    h("button", { type: "button", class: "btn live", onclick: async () => { md2.close(); await deleteMeeting(m.id); toast("Deleted."); } }, "Delete"),
+  ]);
+}
+function renderSettingsCard() {
+  const s = state.settings;
+  const set = (k) => (val) => { s[k] = val; saveSettingsSoon(); };
+  return h("div", { class: "card" },
+    h("div", { class: "card-head" }, h("h2", null, "Settings")),
+    h("div", { class: "form" },
+      h("div", { class: "field" }, h("label", { for: "setName" }, "Your name (used in suggestions)"),
+        h("input", { id: "setName", value: s.myName, oninput: (e) => set("myName")(e.target.value.trim()) })),
+      h("div", { class: "two" },
+        h("div", { class: "field" }, h("label", { for: "setLang" }, "AllKnowing writes in"), selectEl("setLang", AI_LANGS, s.aiLang, set("aiLang"))),
+        h("div", { class: "field" }, h("label", { for: "setDict" }, "Listening language"), selectEl("setDict", DICT_LANGS, s.dictLang, set("dictLang")))),
+      h("div", { class: "two" },
+        h("div", { class: "field" }, h("label", { for: "setTier" }, "Live updates"), selectEl("setTier", [["default", "Thorough (better reads)"], ["quick", "Fast (lighter on usage)"]], s.liveTier, set("liveTier"))),
+        h("div", { class: "field" }, h("label", { for: "setEvery" }, "Auto-update at most every"), selectEl("setEvery", [["45", "45 seconds"], ["60", "1 minute"], ["120", "2 minutes"], ["300", "5 minutes"]], String(s.autoEvery), (v2) => set("autoEvery")(Number(v2))))),
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: s.zhMinutes !== false, onchange: (e) => set("zhMinutes")(e.target.checked) }), "Add a 繁體中文 version to meeting minutes")));
+}
+
+/* ---------- prepare ---------- */
+function bindField(el, fn) { el.addEventListener("input", (e) => { fn(e.target.value); state.dirtyMeeting = true; }); return el; }
+function renderPrep() {
+  const v = $("#view-prep");
+  v.replaceChildren();
+  const m = state.cur;
+  if (!m) { v.append(emptyView("Start a meeting or a game to prepare for it.")); return; }
+  const form = m.mode === "werewolf" ? gameForm(m) : meetingForm(m);
+  const planCard = h("div", { class: "card" },
+    h("div", { class: "card-head" }, h("h2", null, m.mode === "werewolf" ? "Your strategy" : "Your plan"), m.plan ? copyBtn(planToText(m), "Copy plan") : null),
+    h("div", { id: "planStatus", class: "status-line" }),
+    m.plan ? (m.mode === "werewolf" ? renderGamePlan(m.plan) : renderMeetingPlan(m.plan))
+      : h("p", { class: "empty" }, m.mode === "werewolf"
+        ? "Your strategy appears here: what your role must do, a first-day speech, when to reveal, night moves, tells to watch and traps to avoid."
+        : "Your plan appears here: objective, agenda, key messages, questions to ask, questions they'll ask with answers, numbers to have ready, red lines and an opening line."));
+  v.append(h("div", { class: "prep-grid" }, form, planCard));
+}
+function meetingForm(m) {
+  const p = m.prep;
+  const fileInput = h("input", { type: "file", multiple: true, accept: state.imagesOK ? ".txt,.md,.csv,.json,image/*" : ".txt,.md,.csv,.json", style: "display:none", onchange: (e) => addFiles(e.target.files) });
+  return h("div", { class: "card form" },
+    h("div", { class: "card-head" }, h("h2", null, "Meeting background"),
+      cap.mcp ? h("button", { type: "button", class: "btn small", onclick: openCalendarPicker }, "Fill from Outlook calendar") : null),
+    h("div", { class: "field" }, h("label", { for: "pTitle" }, "Meeting"), bindField(h("input", { id: "pTitle", value: m.title, placeholder: "e.g. Pricing call with Samsung team" }), (val) => { m.title = val; renderCurrentBox(); })),
+    h("div", { class: "two" },
+      h("div", { class: "field" }, h("label", { for: "pWhen" }, "When and where"), bindField(h("input", { id: "pWhen", value: p.when, placeholder: "Mon 10am, Level 45 / Teams" }), (val) => { p.when = val; })),
+      h("div", { class: "field" }, h("label", { for: "pLang" }, "Language"), selectEl("pLang", MEETING_LANGS, p.lang, (val) => { p.lang = val; state.dirtyMeeting = true; }))),
+    h("div", { class: "field" }, h("label", { for: "pAtt" }, "Who's there"), bindField(h("input", { id: "pAtt", value: p.attendees, placeholder: "Names, roles, emails, comma-separated" }), (val) => { p.attendees = val; })),
+    h("div", { class: "field" }, h("label", { for: "pGoal" }, "What you want out of it"), bindField(h("textarea", { id: "pGoal", rows: "2", style: "min-height:64px" }, p.goal), (val) => { p.goal = val; })),
+    h("div", { class: "field" }, h("label", { for: "pBg" }, "Background"),
+      bindField(h("textarea", { id: "pBg", rows: "9", maxlength: "20000", placeholder: "Paste emails, notes, numbers, history with these people, anything useful." }, p.background), (val) => { p.background = val; }),
+      h("div", { class: "row space" },
+        h("span", { class: "hint" }, state.imagesOK ? "Add text files, or screenshots and photos of documents." : "Add text files (.txt, .md, .csv)."),
+        h("button", { type: "button", class: "btn small", onclick: () => fileInput.click() }, "Add files"), fileInput),
+      renderFileList(m)),
+    h("div", { class: "row" },
+      h("button", { type: "button", class: "btn primary", id: "planBtn", onclick: generatePlan }, m.plan ? "Rewrite my plan" : "Write my plan"),
+      h("button", { type: "button", class: "btn", onclick: () => go("live") }, "Go to the meeting")));
+}
+function renderFileList(m) {
+  const list = h("div", { class: "files", id: "fileList" });
+  for (const f of m.prep.files) list.append(h("div", { class: "file-chip" }, h("span", null, f.name, h("span", { class: "muted" }, ` · ${Math.round((f.text || "").length / 100) / 10}k chars`)),
+    h("button", { type: "button", class: "btn small ghost", onclick: () => { m.prep.files = m.prep.files.filter((x) => x !== f); state.dirtyMeeting = true; renderPrep(); } }, "Remove")));
+  for (const img of state.prepImages) list.append(h("div", { class: "file-chip" }, h("span", null, img.name, h("span", { class: "muted" }, " · image, used for this plan only")),
+    h("button", { type: "button", class: "btn small ghost", onclick: () => { state.prepImages = state.prepImages.filter((x) => x !== img); renderPrep(); } }, "Remove")));
+  return list;
+}
+async function addFiles(files) {
+  const m = state.cur;
+  if (!m) return;
+  for (const f of Array.from(files || [])) {
+    if (f.type.startsWith("image/")) {
+      if (!state.imagesOK) { toast(`${f.name}: images can't be sent to Claude from here.`, "warn"); continue; }
+      if (state.prepImages.length >= 5) { toast("Up to 5 images per plan.", "warn"); break; }
+      state.prepImages.push({ name: f.name, blob: f });
+    } else {
+      try {
+        const text = await f.text();
+        const used = m.prep.files.reduce((n, x) => n + (x.text || "").length, 0);
+        if (used + text.length > 40000) { toast(`${f.name} is too long to add. Paste the key parts into Background instead.`, "warn", 6000); continue; }
+        m.prep.files.push({ name: f.name, text });
+        state.dirtyMeeting = true;
+      } catch { toast(`Couldn't read ${f.name}.`, "bad"); }
+    }
+  }
+  renderPrep();
+}
+function gameForm(m) {
+  const g = m.game;
+  const customField = h("div", { class: "field", id: "customBoard", hidden: g.boardId !== "custom" },
+    h("label", { for: "gCustom" }, "Describe the board"),
+    bindField(h("input", { id: "gCustom", value: g.custom, placeholder: "e.g. 10人 · 3狼 预言家 女巫 守卫 4民" }), (val) => { g.custom = val; }));
+  return h("div", { class: "card form" },
+    h("div", { class: "card-head" }, h("h2", null, "狼人杀 setup")),
+    h("div", { class: "field" }, h("label", { for: "gTitle" }, "Game"), bindField(h("input", { id: "gTitle", value: m.title }), (val) => { m.title = val; renderCurrentBox(); })),
+    h("div", { class: "field" }, h("label", { for: "gBoard" }, "Board"),
+      selectEl("gBoard", BOARDS.map((b) => [b.id, b.label]), g.boardId, (val) => {
+        const b = BOARDS.find((x) => x.id === val) || BOARDS[0];
+        g.boardId = b.id; g.board = b.label;
+        if (b.players) { g.players = b.players; const pi = $("#gPlayers"); if (pi) pi.value = String(b.players); }
+        $("#customBoard").hidden = b.id !== "custom";
+        state.dirtyMeeting = true;
+      })),
+    customField,
+    h("div", { class: "three" },
+      h("div", { class: "field" }, h("label", { for: "gPlayers" }, "Players"),
+        bindField(h("input", { id: "gPlayers", type: "number", min: "4", max: "20", value: String(g.players) }), (val) => { g.players = clampNum(val, 4, 20); })),
+      h("div", { class: "field" }, h("label", { for: "gSeat" }, "My seat"),
+        bindField(h("input", { id: "gSeat", type: "number", min: "1", max: "20", value: String(g.seat) }), (val) => { g.seat = clampNum(val, 1, 20); })),
+      h("div", { class: "field" }, h("label", { for: "gLang" }, "Table speaks"), selectEl("gLang", TABLE_LANGS, g.tableLang, (val) => { g.tableLang = val; state.dirtyMeeting = true; }))),
+    h("div", { class: "field" }, h("label", { for: "gRole" }, "My role"), selectEl("gRole", ROLES.map((r) => [r, r]), g.role, (val) => { g.role = val; state.dirtyMeeting = true; })),
+    h("div", { class: "field" }, h("label", { for: "gPriv" }, "What only I know"),
+      bindField(h("textarea", { id: "gPriv", rows: "3", style: "min-height:76px", placeholder: "Wolf teammates, check results, potions used… e.g. 队友 3号 8号 / 昨晚查验5号是狼" }, g.private), (val) => { g.private = val; }),
+      h("span", { class: "hint" }, "Update this during the game too. Only you see it.")),
+    h("div", { class: "row" },
+      h("button", { type: "button", class: "btn primary", id: "planBtn", onclick: generatePlan }, m.plan ? "Rewrite my strategy" : "Write my strategy"),
+      h("button", { type: "button", class: "btn", onclick: () => go("live") }, "Go to the game")));
+}
+function secList(title, items, ordered) {
+  if (!items || !items.length) return null;
+  return h("div", { class: "plan-sec" }, h("h3", null, title), h(ordered ? "ol" : "ul", { class: "plain-list" }, items.map((x) => h("li", { html: inline(x) }))));
+}
+function renderMeetingPlan(p) {
+  return h("div", { class: "plan" },
+    p.objective ? h("div", { class: "plan-sec" }, h("h3", null, "Objective"), h("p", { class: "plan-hero" }, p.objective), p.success ? h("p", { class: "muted" }, "Good outcome: " + p.success) : null) : null,
+    p.opening ? h("div", { class: "plan-sec" }, h("h3", null, "Open with"), h("p", { class: "quote" }, p.opening)) : null,
+    p.agenda.length ? h("div", { class: "plan-sec" }, h("h3", null, "Agenda"), h("table", { class: "agenda" },
+      h("thead", null, h("tr", null, h("th", null, "Item"), h("th", null, "Aim"), h("th", null, "Min"))),
+      h("tbody", null, p.agenda.map((a) => h("tr", null, h("td", null, a.item), h("td", { class: "muted" }, a.aim), h("td", { class: "min" }, a.minutes || "")))))) : null,
+    secList("Key messages", p.key_messages),
+    secList("Questions to ask", p.questions_to_ask),
+    p.their_questions.length ? h("div", { class: "plan-sec" }, h("h3", null, "They may ask"), h("div", { class: "qa" }, p.their_questions.map((q) => h("div", null, h("strong", null, q.q), h("div", { class: "muted", html: inline(q.a) }))))) : null,
+    secList("Numbers to have ready", p.numbers),
+    secList("Risks", p.risks),
+    secList("Red lines", p.red_lines),
+    p.people.length ? h("div", { class: "plan-sec" }, h("h3", null, "People"), h("ul", { class: "plain-list" }, p.people.map((x) => h("li", null, h("strong", null, x.name), " · ", x.angle)))) : null);
+}
+function renderGamePlan(p) {
+  return h("div", { class: "plan" },
+    p.role_goal ? h("div", { class: "plan-sec" }, h("h3", null, "Your job"), h("p", { class: "plan-hero" }, p.role_goal)) : null,
+    p.day1_speech ? h("div", { class: "plan-sec" }, h("div", { class: "row space" }, h("h3", null, "First-day speech"), copyBtn(p.day1_speech)), h("p", { class: "quote" }, p.day1_speech)) : null,
+    p.reveal ? h("div", { class: "plan-sec" }, h("h3", null, "Revealing your role"), h("p", null, p.reveal)) : null,
+    p.night_policy ? h("div", { class: "plan-sec" }, h("h3", null, "At night"), h("p", null, p.night_policy)) : null,
+    secList("Watch for", p.watch_for),
+    secList("Traps to avoid", p.traps),
+    secList("Tips for this board", p.tips));
+}
+function planToText(m) {
+  const p = m.plan || {};
+  if (m.mode === "werewolf") return [p.role_goal, p.day1_speech && "First-day speech:\n" + p.day1_speech, p.reveal && "Reveal: " + p.reveal, p.night_policy && "Night: " + p.night_policy, ...(p.watch_for || []).map((x) => "Watch: " + x), ...(p.traps || []).map((x) => "Avoid: " + x)].filter(Boolean).join("\n\n");
+  return [
+    p.objective && "Objective: " + p.objective, p.opening && "Open with: " + p.opening,
+    p.agenda && p.agenda.length && "Agenda:\n" + p.agenda.map((a) => `- ${a.item}${a.minutes ? ` (${a.minutes} min)` : ""}`).join("\n"),
+    p.key_messages && p.key_messages.length && "Key messages:\n" + p.key_messages.map((x) => "- " + stripMd(x)).join("\n"),
+    p.questions_to_ask && p.questions_to_ask.length && "Ask:\n" + p.questions_to_ask.map((x) => "- " + stripMd(x)).join("\n"),
+    p.their_questions && p.their_questions.length && "They may ask:\n" + p.their_questions.map((q) => `- ${q.q}\n  ${stripMd(q.a)}`).join("\n"),
+    p.red_lines && p.red_lines.length && "Red lines:\n" + p.red_lines.map((x) => "- " + stripMd(x)).join("\n"),
+  ].filter(Boolean).join("\n\n");
+}
+
+/* ---------- calendar picker (prep) ---------- */
+function eventsFromResult(res) {
+  const out = [];
+  for (const b of arr(res && res.content, 60)) {
+    if (!b || b.type !== "text" || typeof b.text !== "string") continue;
+    try {
+      const o = JSON.parse(b.text);
+      if (Array.isArray(o)) o.forEach((x) => { if (x && x.subject) out.push(x); });
+      else if (o && o.subject) out.push(o);
+      else if (o && Array.isArray(o.events)) o.events.forEach((x) => { if (x && x.subject) out.push(x); });
+    } catch { /* not JSON */ }
+  }
+  if (!out.length && res && res.payload) {
+    const p = res.payload;
+    if (Array.isArray(p)) p.forEach((x) => { if (x && x.subject) out.push(x); });
+    else if (p && p.subject) out.push(p);
+  }
+  return out.filter((e) => !e.isCancelled);
+}
+function evDate(t) {
+  if (!t || !t.dateTime) return null;
+  const iso = String(t.dateTime).replace(/\.\d+$/, "");
+  const d = new Date(t.timeZone === "UTC" || /utc/i.test(t.timeZone || "") ? iso + "Z" : iso);
+  return isNaN(d) ? null : d;
+}
+function attendeesText(ev) {
+  const list = arr(ev.namedAttendees, 60).length ? ev.namedAttendees : arr(ev.attendees, 60);
+  return list.map((a) => {
+    if (typeof a === "string") return a;
+    const name = a && (a.name || (a.emailAddress && a.emailAddress.name));
+    const email = a && (a.email || a.address || (a.emailAddress && a.emailAddress.address));
+    return [name, email ? `<${email}>` : ""].filter(Boolean).join(" ");
+  }).filter(Boolean).join(", ");
+}
+function mcpErrorText(e) {
+  switch (e && e.code) {
+    case "needs_reauth": return "Reconnect Microsoft 365 in claude.ai Settings → Connectors, then try again.";
+    case "server_not_connected": case "server_not_found": return "Add the Microsoft 365 connector in claude.ai Settings → Connectors, then try again.";
+    case "selection_required": return "Choose which Microsoft 365 connection to use when claude.ai asks, then try again.";
+    case "approval_required": case "consent_required": return "This needs your approval. Try again and choose Allow when asked.";
+    case "not_in_manifest": return "Outlook is switched off for AllKnowing. Turn it on in this page's Permissions menu.";
+    case "blocked_by_policy": return "Your organisation's settings block this Outlook action.";
+    case "tool_error": return "Outlook said no: " + (e.message || "unknown error");
+    case "server_unavailable": case "upstream_error": return "Outlook didn't answer. Check Outlook before trying again, in case it went through.";
+    case "not_granted": case "capability_disabled": case "capability_removed": return "Outlook isn't available in this view. Open AllKnowing in claude.ai.";
+    default: return "Something went wrong talking to Outlook" + (e && e.message ? `: ${e.message}` : ".");
+  }
+}
+function openCalendarPicker() {
+  if (!cap.mcp) { toast("Outlook isn't available here. Open AllKnowing in claude.ai with the Microsoft 365 connector added.", "warn", 7000); return; }
+  const q = h("input", { class: "inp", placeholder: "Search your calendar (leave empty for everything)" });
+  const list = h("div", { class: "ev-list" }, h("p", { class: "empty" }, "Loading the next 30 days…"));
+  const md2 = modal("Pick a meeting from Outlook", h("div", { class: "stack" }, h("div", { class: "row" }, q, h("button", { type: "button", class: "btn", onclick: () => load() }, "Search")), list),
+    [h("button", { type: "button", class: "btn", onclick: () => md2.close() }, "Close")]);
+  q.addEventListener("keydown", (e) => { if (e.key === "Enter") load(); });
+  async function load() {
+    list.replaceChildren(h("p", { class: "empty" }, "Loading…"));
+    try {
+      const res = await cap.mcp.callTool(SERVER, "outlook_calendar_search", { query: q.value.trim() || "*", afterDateTime: "today", beforeDateTime: "in 30 days", order: "oldest", limit: 25 });
+      const evs = eventsFromResult(res);
+      list.replaceChildren();
+      if (!evs.length) { list.append(h("p", { class: "empty" }, "No meetings found in the next 30 days.")); return; }
+      for (const ev of evs) {
+        const d = evDate(ev.start);
+        const att = attendeesText(ev);
+        list.append(h("button", { type: "button", class: "ev", onclick: () => { fillFromEvent(ev); md2.close(); } },
+          h("span", { class: "when" }, d ? d.toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""),
+          h("strong", null, ev.subject || "(no subject)"),
+          att ? h("span", { class: "muted small-text" }, att.length > 140 ? att.slice(0, 140) + "…" : att) : null));
+      }
+    } catch (e) { list.replaceChildren(h("p", { class: "status-line bad" }, mcpErrorText(e))); }
+  }
+  load();
+}
+function fillFromEvent(ev) {
+  const m = state.cur;
+  if (!m) return;
+  const d = evDate(ev.start);
+  m.title = ev.subject || m.title;
+  m.prep.when = [d ? d.toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "", ev.location ? (typeof ev.location === "string" ? ev.location : ev.location.displayName || "") : ""].filter(Boolean).join(" · ");
+  const att = attendeesText(ev);
+  if (att) m.prep.attendees = att;
+  const summary = typeof ev.summary === "string" ? ev.summary : typeof ev.bodyPreview === "string" ? ev.bodyPreview : "";
+  if (summary && !m.prep.background.includes(summary)) m.prep.background = (m.prep.background ? m.prep.background + "\n\n" : "") + "From the invite: " + summary;
+  state.dirtyMeeting = true;
+  renderCurrentBox();
+  renderPrep();
+  toast("Filled in from Outlook.", "good");
+}
+
+/* ---------- AI ---------- */
+function langLine() {
+  switch (state.settings.aiLang) {
+    case "en": return "Write everything in English.";
+    case "zh-Hans": return "Write everything in Simplified Chinese (简体中文).";
+    case "zh-Hant": return "Write everything in Traditional Chinese (繁體中文).";
+    default: return "Write in the main language of the conversation; if that is unclear, use English.";
+  }
+}
+function txLines(m, maxBytes) {
+  const lines = m.segs.map((s) => {
+    const ts = `[${fmtClock(s.t)}]`;
+    if (s.kind === "event") return `${ts} — ${s.text} —`;
+    if (s.kind === "note") return `${ts} (note) ${s.text}`;
+    return `${ts} ${s.sp ? "[" + s.sp + "] " : ""}${s.text}`;
+  });
+  return tailByBytes(lines.join("\n"), maxBytes);
+}
+function meetingContext(m, includePlan = true) {
+  const p = m.prep;
+  const lines = [
+    `MEETING: ${m.title || "(untitled)"}`,
+    p.when ? `When/where: ${p.when}` : "",
+    p.attendees ? `Attendees: ${p.attendees}` : "",
+    `The user: ${myName()} (shown as "Me" in the transcript)`,
+    p.goal ? `The user's goal: ${p.goal}` : "",
+    `Meeting language: ${langName(p.lang)}`,
+  ].filter(Boolean);
+  if (p.background) lines.push("", "BACKGROUND FROM THE USER:", "<<<", headByBytes(p.background, 16000), ">>>");
+  const files = p.files.filter((f) => f.text);
+  if (files.length) lines.push("", "ATTACHED NOTES:", ...files.map((f) => `--- ${f.name} ---\n${headByBytes(f.text, 9000)}`));
+  if (includePlan && m.plan) lines.push("", "PREP PLAN (JSON):", headByBytes(JSON.stringify(m.plan), 6000));
+  return lines.join("\n");
+}
+function gameContext(m, includePlan = true) {
+  const g = m.game;
+  const out = g.out.slice().sort((a, b) => a - b);
+  const lines = [
+    "GAME: 狼人杀 (Werewolf, a social deduction game)",
+    `Players: ${g.players} (seats 1-${g.players})`,
+    `Board: ${g.boardId === "custom" ? g.custom || "custom" : g.board}`,
+    `The user is seat #${g.seat}. Their role: ${g.role}.`,
+    g.private ? `Private information only the user knows: ${g.private}` : "Private information: none given.",
+    out.length ? `Seats the user has marked out of the game: ${out.map((s) => "#" + s).join(", ")}` : "",
+    `Language at the table: ${tableLangName(g.tableLang)}`,
+  ].filter(Boolean);
+  if (includePlan && m.plan) lines.push("", "PREP STRATEGY (JSON):", headByBytes(JSON.stringify(m.plan), 4000));
+  return lines.join("\n");
+}
+function promptLiveMeeting(m) {
+  const name = myName();
+  return [
+    `You are AllKnowing, a real-time meeting assistant helping ${name} during a live meeting. Only ${name} sees your output, so be direct, practical and brief.`,
+    "", meetingContext(m), "",
+    "YOUR PREVIOUS PICTURE (JSON; keep what is still true, correct what changed, add what is new):",
+    m.live ? headByBytes(JSON.stringify(m.live), 9000) : "none yet",
+    "",
+    "TRANSCRIPT SO FAR (live speech-to-text: expect misheard words, missing punctuation and mixed languages; [Name] marks the speaker when tagged; (note) lines are the user's own notes; newest lines are last):",
+    m.segs.length ? txLines(m, LIVE_TRANSCRIPT_BYTES) : "(nothing said yet: base the picture on the setup and the prep plan)",
+    "",
+    "Update the live picture. Reply with only a JSON object in exactly this shape:",
+    LIVE_MEETING_SHAPE,
+    "Rules:",
+    "- discussed: every topic so far, oldest first; at most 8 topics with up to 4 short points each.",
+    "- visual: a headline, 2-4 core conclusions, and exactly 3 cards (title, one-line subtitle, up to 4 bullets). Wrap key figures, names and terms in **double asterisks**.",
+    `- say_next: 2-3 options that move ${name}'s goal forward from where the conversation is right now. Each line is natural spoken words ${name} can say in 10-20 seconds, written in the language the meeting is being held in.`,
+    "- watch_out: up to 3 risks, traps, or points that conflict with the prep plan or the user's goal.",
+    "- Leave a list empty rather than invent. Quote numbers exactly as heard; mark doubtful hearing with (?).",
+    `- ${langLine()} (say_next lines follow the meeting's language.)`,
+  ].join("\n");
+}
+function promptLiveGame(m) {
+  const g = m.game;
+  return [
+    `You are AllKnowing, an expert 狼人杀 player coaching the user (seat #${g.seat}, ${g.role}) during a live game. Only the user sees this, so reason openly, including about their private information.`,
+    "", gameContext(m), "",
+    "YOUR PREVIOUS PICTURE (JSON; keep what is still true, correct what changed):",
+    m.live ? headByBytes(JSON.stringify(m.live), 9000) : "none yet",
+    "",
+    "GAME TRANSCRIPT (live speech-to-text: expect misheard words; [#n] marks the seat speaking when tagged, [法官] is the moderator; lines between dashes are phase changes and events the user logged; (note) lines are the user's notes; newest last):",
+    m.segs.length ? txLines(m, LIVE_TRANSCRIPT_BYTES) : "(nobody has spoken yet: give opening guidance from the setup)",
+    "",
+    "Reply with only a JSON object in exactly this shape:",
+    LIVE_GAME_SHAPE,
+    "Rules:",
+    `- players: one entry for every seat from 1 to ${g.players}. For the user's own seat use read "me". Work from what is said and logged: deaths, claims, counter-claims, check results, who defends or attacks whom, vote patterns, speaking-order logic and contradictions.`,
+    "- confidence: 0-100 for how sure each read is.",
+    "- If the user is on the wolf team, help the wolves win: suggest believable speeches, never expose teammates, and say who to push. If the user is on the good side, find the wolves and protect key roles.",
+    `- say_next: 1-2 options. Each line is a complete speech the user can read out, 4-8 sentences, in ${tableLangName(g.tableLang)}.`,
+    "- vote: the seat to vote out now, or 0 if there is no vote yet or no good target.",
+    "- night: what to do tonight with the user's role (check, save, poison, guard or kill target), or empty if it doesn't apply.",
+    "- visual: a headline, 2-4 conclusions and exactly 3 cards (for example claims and facts, suspects, plan). Wrap seats and key facts in **double asterisks**.",
+    `- ${langLine()} (say_next lines follow the table's language.)`,
+  ].join("\n");
+}
+function promptSayMeeting(m) {
+  const name = myName();
+  const l = m.live || {};
+  return [
+    `You are AllKnowing, whispering to ${name} in a live meeting. ${name} has to speak right now.`,
+    "", meetingContext(m), "",
+    "LATEST PICTURE (JSON):", m.live ? headByBytes(JSON.stringify({ stage: l.stage, situation: l.situation, decisions: l.decisions, open_questions: l.open_questions, watch_out: l.watch_out }), 3000) : "none yet",
+    "", "MOST RECENT PART OF THE TRANSCRIPT (newest last):", m.segs.length ? txLines(m, 9000) : "(nothing yet)",
+    "",
+    "Write in exactly this format and nothing else:",
+    "**Say this:** the exact words, natural and spoken, 1-3 sentences, in the meeting's language.",
+    "**Or:** two one-line alternatives that take a different angle.",
+    "**Ask:** one sharp question to ask, if useful.",
+    "**Avoid:** one thing not to say right now, if relevant.",
+    `Keep it short; ${name} will glance at it mid-conversation.`,
+  ].join("\n");
+}
+function promptSayGame(m) {
+  const g = m.game;
+  const l = m.live || {};
+  return [
+    `You are AllKnowing, an expert 狼人杀 coach. It is the user's turn to speak: seat #${g.seat}, ${g.role}.`,
+    "", gameContext(m), "",
+    "LATEST PICTURE (JSON):", m.live ? headByBytes(JSON.stringify({ phase: l.phase, situation: l.situation, players: l.players, events: l.events, vote: l.vote }), 6000) : "none yet",
+    "", "MOST RECENT PART OF THE GAME TRANSCRIPT (newest last):", m.segs.length ? txLines(m, 12000) : "(nothing yet)",
+    "",
+    `Write in ${tableLangName(g.tableLang)}, in exactly this format and nothing else:`,
+    "**发言 Speech:** a complete speech to read out, 5-8 sentences: stance, who to suspect and trust with reasons, and who to vote.",
+    "**Don't reveal:** one line.",
+    "**If challenged:** one line to answer back.",
+    "If the user is a wolf, the speech must sound like a good player and protect teammates.",
+  ].join("\n");
+}
+function promptPrepMeeting(m) {
+  const name = myName();
+  const imgNote = state.prepImages.length ? `\n${state.prepImages.length} image(s) are attached: screenshots or photos ${name} added as background. Read them as part of the background.` : "";
+  return [
+    `You are preparing ${name} for an upcoming meeting. Be specific to this situation, not generic.`,
+    "", meetingContext(m, false) + imgNote, "",
+    "Reply with only a JSON object in exactly this shape:",
+    PREP_MEETING_SHAPE,
+    "Rules:",
+    "- agenda: 3-7 items whose minutes add up to a realistic length for this meeting.",
+    "- key_messages 3-5; questions_to_ask 3-6; their_questions 3-6, each with a suggested answer.",
+    "- numbers: facts and figures from the background worth having ready; empty if none.",
+    "- people: one entry per attendee you can say something useful about.",
+    `- ${langLine()}`,
+  ].join("\n");
+}
+function promptPrepGame(m) {
+  const g = m.game;
+  return [
+    "You are an expert 狼人杀 coach preparing the user before a game.",
+    "", gameContext(m, false), "",
+    "Reply with only a JSON object in exactly this shape:",
+    PREP_GAME_SHAPE,
+    "Rules:",
+    `- day1_speech: a ready-to-say first-day speech in ${tableLangName(g.tableLang)}, 4-7 sentences, fitting the user's role and seat.`,
+    "- Be specific to this board, seat and role.",
+    `- ${langLine()} (day1_speech follows the table's language.)`,
+  ].join("\n");
+}
+function promptMinutes(m) {
+  const name = myName();
+  const zh = state.settings.zhMinutes !== false;
+  return [
+    `Turn this meeting into minutes for ${name}.`,
+    "", meetingContext(m), "",
+    m.live ? "LAST LIVE PICTURE (JSON):\n" + headByBytes(JSON.stringify(m.live), 8000) + "\n" : "",
+    "FULL TRANSCRIPT (speech-to-text: expect misheard words; [Name] marks speakers when tagged; (note) lines are the user's notes):",
+    m.segs.length ? txLines(m, MINUTES_TRANSCRIPT_BYTES) : "(no transcript)",
+    "",
+    "Reply with only a JSON object in exactly this shape:",
+    minutesShape(zh),
+    "Rules:",
+    "- Flag unclear passages with (unclear) rather than guessing. Quote numbers exactly as heard.",
+    `- actions: every follow-up, with an owner (use "${name}" for the user) and a due date as YYYY-MM-DD when one is stated or clearly implied (today is ${localISODate()}), otherwise empty.`,
+    `- follow_up_email: a short email from ${name} to the attendees recapping decisions and next steps, in the meeting's main language. Plain text, no signature.`,
+    "- visual: headline, 2-4 core conclusions, exactly 3 cards; wrap key figures and names in **double asterisks**.",
+    `- ${langLine()}`,
+    zh ? "- zh_hant: the summary, key points, decisions and actions in Traditional Chinese (繁體中文)." : "",
+  ].filter(Boolean).join("\n");
+}
+function promptRecapGame(m) {
+  return [
+    "Write a short recap of this 狼人杀 game for the user, as a coach would.",
+    "", gameContext(m), "",
+    m.live ? "LAST LIVE PICTURE (JSON):\n" + headByBytes(JSON.stringify(m.live), 8000) + "\n" : "",
+    "GAME TRANSCRIPT:",
+    m.segs.length ? txLines(m, MINUTES_TRANSCRIPT_BYTES) : "(no transcript)",
+    "",
+    "Reply with only a JSON object in exactly this shape:",
+    RECAP_SHAPE,
+    `- ${langLine()}`,
+  ].join("\n");
+}
+
+function normVisual(v) {
+  v = obj(v);
+  return {
+    title: str(v.title, 160),
+    conclusions: strArr(v.conclusions, 4, 300),
+    cards: arr(v.cards, 4).map((c) => ({ title: str(obj(c).title, 80), subtitle: str(obj(c).subtitle, 200), bullets: strArr(obj(c).bullets, 5, 300) })).filter((c) => c.title || c.bullets.length),
+  };
+}
+const normSay = (list, max = 3) => arr(list, max).map((o) => (typeof o === "string" ? { label: "", line: str(o, 1500), why: "" } : { label: str(obj(o).label, 40), line: str(obj(o).line, 1500), why: str(obj(o).why, 300) })).filter((o) => o.line);
+function normMeetingLive(d) {
+  d = obj(d);
+  return {
+    title: str(d.title, 120), stage: str(d.stage, 60), situation: str(d.situation, 1200),
+    discussed: arr(d.discussed, 10).map((t) => ({ topic: str(obj(t).topic, 120), points: strArr(obj(t).points, 5, 300) })).filter((t) => t.topic),
+    decisions: strArr(d.decisions, 10), open_questions: strArr(d.open_questions, 10),
+    actions: arr(d.actions, 12).map((a) => (typeof a === "string" ? { task: str(a, 300), owner: "", due: "" } : { task: str(obj(a).task, 300), owner: str(obj(a).owner, 80), due: str(obj(a).due, 60) })).filter((a) => a.task),
+    visual: normVisual(d.visual), say_next: normSay(d.say_next), watch_out: strArr(d.watch_out, 4),
+  };
+}
+function normGameLive(d, m) {
+  d = obj(d);
+  const n = m.game.players, mySeat = Number(m.game.seat);
+  const bySeat = new Map();
+  for (const p0 of arr(d.players, 30)) {
+    const p = obj(p0), s = Number(p.seat);
+    if (s >= 1 && s <= n) bySeat.set(s, { seat: s, status: str(p.status, 12), claim: str(p.claim, 30), read: ["wolf", "good", "unsure", "me"].includes(p.read) ? p.read : "unsure", confidence: clampNum(p.confidence, 0, 100), note: str(p.note, 200) });
+  }
+  const players = Array.from({ length: n }, (_, i) => bySeat.get(i + 1) || { seat: i + 1, status: "unknown", claim: "", read: "unsure", confidence: 0, note: "" });
+  if (players[mySeat - 1]) players[mySeat - 1].read = "me";
+  const vs = Number(obj(d.vote).seat);
+  return {
+    phase: str(d.phase, 60), situation: str(d.situation, 1200), players, events: strArr(d.events, 30, 200),
+    visual: normVisual(d.visual), say_next: normSay(d.say_next, 2),
+    vote: { seat: vs >= 1 && vs <= n ? vs : 0, why: str(obj(d.vote).why, 400) },
+    night: str(d.night, 400), watch_out: strArr(d.watch_out, 4),
+  };
+}
+function normMeetingPlan(d) {
+  d = obj(d);
+  return {
+    title: str(d.title, 120), objective: str(d.objective, 400), success: str(d.success, 400),
+    agenda: arr(d.agenda, 10).map((a) => ({ item: str(obj(a).item, 200), minutes: clampNum(obj(a).minutes, 0, 600) || "", aim: str(obj(a).aim, 300) })).filter((a) => a.item),
+    key_messages: strArr(d.key_messages, 6), questions_to_ask: strArr(d.questions_to_ask, 8),
+    their_questions: arr(d.their_questions, 8).map((q) => ({ q: str(obj(q).q, 300), a: str(obj(q).a, 600) })).filter((q) => q.q),
+    numbers: strArr(d.numbers, 10), risks: strArr(d.risks, 6), red_lines: strArr(d.red_lines, 6),
+    opening: str(d.opening, 600),
+    people: arr(d.people, 12).map((x) => ({ name: str(obj(x).name, 80), angle: str(obj(x).angle, 300) })).filter((x) => x.name),
+  };
+}
+function normGamePlan(d) {
+  d = obj(d);
+  return { title: str(d.title, 120), role_goal: str(d.role_goal, 500), day1_speech: str(d.day1_speech, 1500), reveal: str(d.reveal, 600), night_policy: str(d.night_policy, 600), watch_for: strArr(d.watch_for, 8), traps: strArr(d.traps, 8), tips: strArr(d.tips, 8) };
+}
+function normMinutes(d) {
+  d = obj(d);
+  const z = obj(d.zh_hant), fe = obj(d.follow_up_email);
+  const acts = (list) => arr(list, 30).map((a) => (typeof a === "string" ? { task: str(a, 300), owner: "", due: "", priority: "normal" } : { task: str(obj(a).task, 300), owner: str(obj(a).owner, 80), due: /^\d{4}-\d{2}-\d{2}$/.test(str(obj(a).due, 10)) ? str(obj(a).due, 10) : "", priority: obj(a).priority === "high" ? "high" : "normal" })).filter((a) => a.task);
+  return {
+    title: str(d.title, 160), summary: str(d.summary, 3000), key_points: strArr(d.key_points, 20, 500), decisions: strArr(d.decisions, 20, 500),
+    actions: acts(d.actions), open_questions: strArr(d.open_questions, 15, 400),
+    follow_up_email: { subject: str(fe.subject, 200), body: str(fe.body, 6000) },
+    visual: normVisual(d.visual),
+    zh_hant: z.summary || arr(z.key_points).length ? { summary: str(z.summary, 3000), key_points: strArr(z.key_points, 20, 500), decisions: strArr(z.decisions, 20, 500), actions: acts(z.actions) } : null,
+  };
+}
+function normRecap(d) {
+  d = obj(d);
+  return { title: str(d.title, 160), result: str(d.result, 300), summary: str(d.summary, 3000), timeline: strArr(d.timeline, 40, 300), key_moments: strArr(d.key_moments, 10, 400), my_play: strArr(d.my_play, 10, 400), next_time: strArr(d.next_time, 10, 400), visual: normVisual(d.visual) };
+}
+
+function aiReady() {
+  if (!cap.sample) { toast("Claude isn't available here. Open AllKnowing in claude.ai.", "warn", 6000); return false; }
+  if (state.aiBlocked) { toast("Claude is switched off for AllKnowing. Allow it in this page's Permissions menu, then reload.", "warn", 7000); return false; }
+  return true;
+}
+function aiErr(e, where) {
+  const code = (e && e.code) || "upstream_error";
+  if (code === "cancelled") return;
+  let msg;
+  switch (code) {
+    case "not_granted": case "sampling_disabled": case "not_declared": case "capability_disabled": case "capability_removed":
+      state.aiBlocked = true; msg = "AllKnowing isn't allowed to use Claude here. Allow it in this page's Permissions menu, then reload."; break;
+    case "rate_limited": state.autoPausedUntil = Date.now() + 120000; msg = "Claude is busy or you've reached a usage limit. Auto-updates pause for 2 minutes."; break;
+    case "session_expired": msg = "Your claude.ai session expired. Sign in again, then reload."; break;
+    case "prompt_too_large": msg = "Too much text for one request. Shorten the background and try again."; break;
+    case "invalid_json": msg = "The answer came back garbled. Try again."; break;
+    case "refused": msg = "Claude declined this one. Try rewording the background or notes."; break;
+    case "empty_completion": msg = "Claude returned nothing. Try again."; break;
+    default: msg = `Claude didn't answer (${code}). Try again in a moment.`;
+  }
+  if (where === "live" || where === "auto") setAiStatus(msg, "bad");
+  if (where !== "auto") toast(msg, "bad", 6500);
+}
+function setAiStatus(text, kind = "") {
+  state.aiStatus = { text, kind };
+  const el = $("#aiStatus");
+  if (el) { el.textContent = text; el.className = "status-line " + kind; }
+}
+async function runLiveUpdate(reason = "manual") {
+  const m = state.cur;
+  if (!m) return;
+  if (reason === "manual") { if (!aiReady()) return; }
+  else if (!cap.sample || state.aiBlocked) return;
+  if (state.aiBusy) { if (reason === "manual") toast("Already updating."); return; }
+  state.aiBusy = true;
+  setAiStatus(reason === "kickoff" ? "Getting the first read…" : "Updating the picture…", "busy");
+  const ctl = new AbortController();
+  state.aiCtl = ctl;
+  const charsAtStart = txChars(m);
+  try {
+    const prompt = m.mode === "werewolf" ? promptLiveGame(m) : promptLiveMeeting(m);
+    const data = await cap.sample.json(prompt, { modelTier: state.settings.liveTier === "quick" ? "quick" : "default", signal: ctl.signal, cache: false });
+    if (state.cur !== m) return;
+    m.live = m.mode === "werewolf" ? normGameLive(data, m) : normMeetingLive(data);
+    m.liveAt = Date.now();
+    if (m.mode === "meeting" && !m.title && m.live.title) { m.title = m.live.title; renderCurrentBox(); }
+    state.lastAnalysisAt = Date.now();
+    state.lastAnalyzedChars = charsAtStart;
+    state.dirtyMeeting = true;
+    renderLivePanels();
+    setAiStatus(`Updated ${clockTime()}${state.settings.auto ? " · auto-update on" : ""}`, "ok");
+  } catch (e) {
+    aiErr(e, reason === "auto" ? "auto" : "live");
+  } finally {
+    state.aiBusy = false;
+    state.aiCtl = null;
+  }
+}
+function maybeAutoUpdate() {
+  const m = state.cur;
+  if (!m || !state.settings.auto || state.aiBusy || state.aiBlocked || !cap.sample) return;
+  if (Date.now() < state.autoPausedUntil) return;
+  const every = Math.max(30, Number(state.settings.autoEvery) || 60) * 1000;
+  if (txChars(m) - state.lastAnalyzedChars >= AUTO_MIN_CHARS && Date.now() - state.lastAnalysisAt >= every) runLiveUpdate("auto");
+}
+async function askSayNow() {
+  const m = state.cur;
+  if (!m || !aiReady()) return;
+  if (state.sayCtl) state.sayCtl.abort();
+  const ctl = new AbortController();
+  state.sayCtl = ctl;
+  state.sayNow = { text: "", at: Date.now(), busy: true };
+  renderSayNow();
+  renderSay();
+  try {
+    const prompt = m.mode === "werewolf" ? promptSayGame(m) : promptSayMeeting(m);
+    const res = await cap.sample(prompt, { modelTier: "quick", signal: ctl.signal, cache: false, onText: ({ text }) => { if (state.sayCtl === ctl) { state.sayNow.text = text; renderSayNow(); } } });
+    if (state.sayCtl === ctl) state.sayNow.text = res.text;
+  } catch (e) {
+    if (state.sayCtl === ctl && e && e.text) state.sayNow.text = e.text;
+    aiErr(e, "say");
+  } finally {
+    if (state.sayCtl === ctl) { state.sayNow.busy = false; state.sayCtl = null; renderSayNow(); }
+  }
+}
+function setPlanStatus(text, kind = "") { const el = $("#planStatus"); if (el) { el.textContent = text; el.className = "status-line " + kind; } }
+async function generatePlan() {
+  const m = state.cur;
+  if (!m || !aiReady()) return;
+  if (m.mode === "meeting" && !m.prep.background.trim() && !m.prep.goal.trim() && !m.prep.files.length && !state.prepImages.length) {
+    toast("Add some background or your goal first, so the plan isn't generic.", "warn");
+    return;
+  }
+  const btn = $("#planBtn");
+  if (btn) btn.disabled = true;
+  setPlanStatus(m.mode === "werewolf" ? "Working out your strategy… usually 20-60 seconds." : "Writing your plan… usually 20-60 seconds.", "busy");
+  try {
+    const opts = { modelTier: "default", cache: false };
+    if (m.mode === "meeting" && state.prepImages.length && state.imagesOK) opts.images = state.prepImages.map((x) => x.blob);
+    const data = await cap.sample.json(m.mode === "werewolf" ? promptPrepGame(m) : promptPrepMeeting(m), opts);
+    if (state.cur !== m) return;
+    m.plan = m.mode === "werewolf" ? normGamePlan(data) : normMeetingPlan(data);
+    if (!m.title && m.plan.title) m.title = m.plan.title;
+    await saveMeeting(m);
+    renderCurrentBox();
+    if (state.route === "prep") renderPrep();
+    toast(m.mode === "werewolf" ? "Strategy ready." : "Plan ready.", "good");
+  } catch (e) {
+    aiErr(e, "plan");
+    setPlanStatus("");
+  } finally {
+    const b2 = $("#planBtn");
+    if (b2) b2.disabled = false;
+  }
+}
+function setMinutesStatus(text, kind = "") { const el = $("#minStatus"); if (el) { el.textContent = text; el.className = "status-line " + kind; } }
+async function generateMinutes() {
+  const m = state.cur;
+  if (!m || !aiReady() || state.minutesBusy) return;
+  if (!m.segs.length && !m.live) { toast("There's no transcript yet. Listen or add notes first.", "warn"); return; }
+  state.minutesBusy = true;
+  if (isListening()) await stopListening();
+  await flushSaves();
+  setMinutesStatus(m.mode === "werewolf" ? "Writing the game recap… usually 30-90 seconds." : "Writing the minutes… usually 30-90 seconds.", "busy");
+  const btn = $("#minBtn");
+  if (btn) btn.disabled = true;
+  try {
+    const data = await cap.sample.json(m.mode === "werewolf" ? promptRecapGame(m) : promptMinutes(m), { modelTier: "default", cache: false });
+    if (state.cur !== m) return;
+    m.minutes = m.mode === "werewolf" ? normRecap(data) : normMinutes(data);
+    m.minutesAt = Date.now();
+    m.status = "done";
+    m.endedAt = m.endedAt || Date.now();
+    if (!m.title && m.minutes.title) m.title = m.minutes.title;
+    await saveMeeting(m);
+    let added = 0;
+    if (m.mode === "meeting") added = await addActionsAsTodos(m);
+    state.minutesBusy = false;
+    renderCurrentBox();
+    if (state.route === "after") renderAfter();
+    toast(added ? `Minutes ready. ${added} follow-up${added === 1 ? "" : "s"} added.` : m.mode === "werewolf" ? "Recap ready." : "Minutes ready.", "good");
+  } catch (e) {
+    aiErr(e, "minutes");
+    setMinutesStatus("");
+  } finally {
+    state.minutesBusy = false;
+    const b2 = $("#minBtn");
+    if (b2) b2.disabled = false;
+  }
+}
+
+/* ---------- dictation ---------- */
+const isListening = () => state.dictState === "listening" || state.dictState === "starting" || state.dictState === "finishing";
+function bindDictation() {
+  const d = cap.dict;
+  if (!d) return;
+  try {
+    d.onPartial(({ text }) => { state.partial = text || ""; renderPartial(); });
+    d.onFinal(({ text }) => onFinalText(text));
+    d.onState(({ state: s, reason }) => onDictState(s, reason));
+  } catch (e) { console.warn(e); }
+}
+const LISTEN_MSG = {
+  viewer_stopped: "Listening stopped.",
+  hidden: "Listening paused because this tab or window was hidden. Tap Resume to carry on, and keep this tab in front.",
+  time_limit: "One listening session lasts up to 60 minutes. Tap Resume to carry on.",
+  not_granted: "Dictation is switched off for AllKnowing, or the browser blocked the microphone. Turn it on in this page's Permissions menu, then tap Start.",
+  dismissed: "You closed the permission question. Tap Start to be asked again.",
+  unavailable: "Dictation isn't available for this language or account here. Pick another listening language, or type below.",
+  rate_limited: "Too many dictation sessions at once. Wait a moment, then tap Resume.",
+  upstream_error: "The microphone or the speech service failed. Tap Resume to try again.",
+};
+function onDictState(s, reason) {
+  state.dictState = s;
+  if (s === "idle") {
+    state.partial = "";
+    renderPartial();
+    state.openSegId = null;
+    if (reason && reason !== "stopped") state.listenNote = LISTEN_MSG[reason] || "Listening stopped. Tap Resume to try again.";
+    flushSaves();
+  } else if (s === "listening") state.listenNote = "";
+  renderListenUI();
+  renderCurrentBox();
+}
+function startListening() {
+  const d = cap.dict;
+  const m = state.cur;
+  if (!m) return;
+  if (!d) { toast("Dictation needs Chrome or Edge on a computer, or the Claude desktop app. You can still type below.", "warn", 7000); return; }
+  const lang = state.settings.dictLang;
+  let p;
+  try { p = lang ? d.start({ language: lang }) : d.start(); } catch (e) { p = Promise.reject(e); }
+  const first = !m.startedAt;
+  if (first) { m.startedAt = Date.now(); m.status = "live"; state.dirtyMeeting = true; }
+  ensureClock();
+  p.then(() => {
+    if (first || !m.live) runLiveUpdate("kickoff");
+  }).catch((e) => {
+    const code = (e && e.code) || "upstream_error";
+    if (code === "stopped") return;
+    state.listenNote = LISTEN_MSG[code] || (code === "no_gesture" ? "Tap Start again." : `Couldn't start listening (${code}).`);
+    renderListenUI();
+  });
+}
+async function stopListening() {
+  try { if (cap.dict) await cap.dict.stop(); } catch { /* ignore */ }
+  await flushSaves();
+}
+function onFinalText(text) {
+  const m = state.cur;
+  if (!m || !text) return;
+  const now = Date.now();
+  if (!m.startedAt) { m.startedAt = now; m.status = "live"; state.dirtyMeeting = true; }
+  const t = (now - m.startedAt) / 1000;
+  const last = m.segs[m.segs.length - 1];
+  let seg = last && last.id === state.openSegId ? last : null;
+  if (seg && seg.kind === "speech" && seg.sp === state.speaker && now - state.lastFinalAt < 15000 && seg.text.length < 700) {
+    seg.text += text;
+    markSegDirty(m.segs.length - 1);
+  } else {
+    seg = { id: uid(), t, sp: state.speaker || "", text: text.replace(/^\s+/, ""), kind: "speech" };
+    m.segs.push(seg);
+    state.openSegId = seg.id;
+    markSegDirty(m.segs.length - 1);
+  }
+  state.lastFinalAt = now;
+  state.partial = "";
+  renderSegUpdate(seg);
+  renderPartial();
+  maybeAutoUpdate();
+}
+function addSeg(kind, text, sp = "") {
+  const m = state.cur;
+  if (!m || !text) return;
+  if (!m.startedAt) { m.startedAt = Date.now(); m.status = "live"; state.dirtyMeeting = true; ensureClock(); }
+  const s = { id: uid(), t: (Date.now() - m.startedAt) / 1000, sp: kind === "speech" ? sp : "", text, kind };
+  m.segs.push(s);
+  markSegDirty(m.segs.length - 1);
+  state.openSegId = null;
+  renderSegUpdate(s);
+  if (kind !== "event") maybeAutoUpdate();
+}
+function ensureClock() {
+  if (state.clockId) return;
+  state.clockId = setInterval(tickClock, 1000);
+  tickClock();
+}
+function tickClock() {
+  const el = $("#clock");
+  const m = state.cur;
+  if (el) el.textContent = m && m.startedAt ? fmtClock(((m.endedAt && m.status === "done" ? m.endedAt : Date.now()) - m.startedAt) / 1000) : "00:00";
+}
+
+/* ---------- live view ---------- */
+function speakerOptions(m) {
+  if (m.mode === "werewolf") {
+    const out = new Set(m.game.out);
+    return [{ label: "法官", key: "法官" }].concat(Array.from({ length: m.game.players }, (_, i) => ({ label: "#" + (i + 1), key: "#" + (i + 1), seat: i + 1, me: i + 1 === Number(m.game.seat), out: out.has(i + 1) })));
+  }
+  const names = String(m.prep.attendees || "").split(/[,;\n]/).map((s) => s.replace(/<[^>]*>/g, "").replace(/\([^)]*\)/g, "").trim()).filter((s) => s && !/@/.test(s)).slice(0, 12);
+  const uniq = Array.from(new Set(names));
+  return [{ label: "Me", key: "Me", me: true }].concat(uniq.map((n) => ({ label: n, key: n })), [{ label: "Other", key: "Other" }]);
+}
+function renderChips() {
+  const box = $("#chips");
+  const m = state.cur;
+  if (!box || !m) return;
+  box.replaceChildren(h("span", { class: "chips-label" }, m.mode === "werewolf" ? (state.markOut ? "Tap a seat to mark it out (or back in)" : "Who's speaking? Tap the seat") : "Who's speaking? Tap to tag (optional)"));
+  for (const o of speakerOptions(m)) {
+    box.append(h("button", {
+      type: "button",
+      class: "chip" + (o.me ? " me" : "") + (o.out ? " out" : ""),
+      "aria-pressed": String(state.speaker === o.key && !state.markOut),
+      title: o.me ? "You" : "",
+      onclick: () => {
+        if (m.mode === "werewolf" && state.markOut && o.seat) { toggleOut(o.seat); return; }
+        state.speaker = state.speaker === o.key ? "" : o.key;
+        state.openSegId = null;
+        renderChips();
+      },
+    }, o.label + (o.me && m.mode === "werewolf" ? " (me)" : "")));
+  }
+}
+function toggleOut(seat) {
+  const g = state.cur.game;
+  const i = g.out.indexOf(seat);
+  if (i > -1) { g.out.splice(i, 1); addSeg("event", `#${seat} 回到场上 · back in`); }
+  else { g.out.push(seat); addSeg("event", `#${seat} 出局 · out`); }
+  state.dirtyMeeting = true;
+  renderChips();
+  renderBoard();
+}
+function renderLive() {
+  const v = $("#view-live");
+  v.replaceChildren();
+  const m = state.cur;
+  if (!m) { v.append(emptyView("Start a meeting or a 狼人杀 game first.")); return; }
+  const ww = m.mode === "werewolf";
+
+  const bar = h("div", { class: "live-bar" },
+    h("button", { type: "button", id: "listenBtn", class: "btn big primary", onclick: () => (isListening() ? stopListening() : startListening()) }),
+    h("span", { id: "listenPill", class: "pill" }),
+    h("span", { id: "clock", class: "clock" }, "00:00"),
+    selectEl("dictLang", DICT_LANGS, state.settings.dictLang, (val) => { state.settings.dictLang = val; saveSettingsSoon(); if (isListening()) toast("The new language applies next time you start listening."); }, "select-sm"),
+    h("span", { class: "spacer" }),
+    h("button", { type: "button", class: "btn", id: "autoBtn", "aria-pressed": String(!!state.settings.auto), title: "Refresh the picture automatically while people talk", onclick: (e) => { state.settings.auto = !state.settings.auto; e.currentTarget.setAttribute("aria-pressed", String(state.settings.auto)); saveSettingsSoon(); toast(state.settings.auto ? "Auto-update on." : "Auto-update off."); } }, "Auto-update"),
+    h("button", { type: "button", class: "btn", onclick: () => runLiveUpdate("manual") }, "Update now"),
+    h("button", { type: "button", class: "btn primary", onclick: askSayNow }, "What should I say?"),
+    h("button", { type: "button", class: "btn", onclick: endMeeting }, ww ? "End game" : "End meeting"));
+
+  const tools = ww ? h("div", { class: "row", style: "margin-bottom:8px" },
+    h("button", { type: "button", class: "btn small", onclick: () => addSeg("event", "天黑 · Night") }, "Night"),
+    h("button", { type: "button", class: "btn small", onclick: () => addSeg("event", "天亮 · Day") }, "Day"),
+    h("button", { type: "button", class: "btn small", onclick: () => addSeg("event", "投票 · Vote") }, "Vote"),
+    h("button", { type: "button", class: "btn small", id: "markOutBtn", "aria-pressed": String(state.markOut), onclick: (e) => { state.markOut = !state.markOut; e.currentTarget.setAttribute("aria-pressed", String(state.markOut)); renderChips(); } }, "Mark seats out")) : null;
+
+  const composerInput = h("input", { id: "composerText", placeholder: ww ? "Type what was said, or a note (e.g. 5号跳预言家 查杀8号)" : "Type what was said, or a note", "aria-label": "Add a line" });
+  let autoTimer = null;
+  const commit = () => {
+    const text = composerInput.value.trim();
+    if (!text) return;
+    const kind = $("#composerKind").value;
+    addSeg(kind, text, kind === "speech" ? state.speaker : "");
+    composerInput.value = "";
+  };
+  composerInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); clearTimeout(autoTimer); commit(); } });
+  composerInput.addEventListener("input", () => { if (!$("#autoCommit") || !$("#autoCommit").checked) return; clearTimeout(autoTimer); autoTimer = setTimeout(commit, 2500); });
+
+  const txCard = h("div", { class: "card col-transcript" },
+    h("div", { class: "card-head" }, h("h2", null, ww ? "Table talk" : "Transcript"), h("span", { id: "txCount", class: "muted small-text" })),
+    h("div", { id: "listenNote" }),
+    h("div", { id: "chips", class: "chips" }),
+    tools,
+    h("div", { id: "tx", class: "transcript", "aria-live": "off" }),
+    h("div", { class: "composer" },
+      h("select", { id: "composerKind", "aria-label": "Line type" }, h("option", { value: "speech" }, "Said"), h("option", { value: "note" }, "Note")),
+      composerInput,
+      h("button", { type: "button", class: "btn", onclick: commit }, "Add")),
+    h("label", { class: "check small-text", style: "margin-top:8px" }, h("input", { type: "checkbox", id: "autoCommit" }), "Add typed text automatically after a pause (use this with Windows or Mac dictation)"));
+
+  const sayCard = h("div", { class: "card say", id: "sayCard" },
+    h("div", { class: "card-head" }, h("h2", null, ww ? "What to say" : "Say next"), h("span", { id: "aiStatus", class: "status-line" })),
+    h("div", { id: "sayNow" }),
+    h("div", { id: "sayBody" }));
+  const sitCard = h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", null, ww ? "The game right now" : "What's going on")), h("div", { id: "sitBody" }));
+  const visCard = h("div", { class: "card" }, h("div", { id: "visBody" }));
+  const detail = ww
+    ? h("div", { class: "card col-detail" }, h("div", { class: "card-head" }, h("h2", null, "Seats"), h("span", { class: "muted small-text" }, `You are #${m.game.seat} · ${m.game.role}`)), h("div", { id: "boardBody" }))
+    : h("div", { class: "card col-detail" }, h("div", { class: "card-head" }, h("h2", null, "So far")), h("div", { id: "detailBody" }));
+
+  v.append(bar, h("div", { class: "live-grid" }, txCard, h("div", { class: "stack col-assist" }, sayCard, sitCard, visCard), detail));
+  renderListenUI();
+  renderChips();
+  renderTranscriptAll();
+  renderLivePanels();
+  renderSayNow();
+  if (state.aiStatus && state.aiStatus.text) setAiStatus(state.aiStatus.text, state.aiStatus.kind);
+  else setAiStatus(cap.sample ? (m.live ? `Last update ${clockTime(m.liveAt)}` : "The picture updates once people start talking.") : "Claude isn't available in this view.", "");
+  if (m.startedAt) ensureClock(); else tickClock();
+}
+function renderListenUI() {
+  const btn = $("#listenBtn");
+  const pill = $("#listenPill");
+  const m = state.cur;
+  if (btn) {
+    const on = isListening();
+    btn.className = "btn big " + (on ? "live" : "primary");
+    btn.innerHTML = on ? ICON.stop + "<span>Stop listening</span>" : ICON.mic + `<span>${m && m.startedAt ? "Resume listening" : "Start listening"}</span>`;
+    btn.disabled = state.dictState === "finishing" || state.dictState === "starting";
+  }
+  if (pill) {
+    const s = state.dictState;
+    pill.className = "pill" + (s === "listening" ? " on" : "");
+    pill.replaceChildren(h("span", { class: "dot" }), s === "listening" ? "Listening" : s === "starting" ? "Starting…" : s === "finishing" ? "Finishing…" : m && m.startedAt ? "Paused" : "Not started");
+  }
+  const note = $("#listenNote");
+  if (note) {
+    note.replaceChildren();
+    if (state.listenNote) note.append(h("div", { class: "banner" }, h("span", null, state.listenNote)));
+    else if (!cap.dict) note.append(h("div", { class: "banner" }, h("span", null, "Listening needs Chrome or Edge on a computer, or the Claude desktop app. Meanwhile, type below, or turn on “Add typed text automatically” and use your computer's own dictation (Win+H on Windows, press Fn twice on a Mac).")));
+  }
+}
+function segEl(s) {
+  if (s.kind === "event") return h("div", { class: "seg event" }, `— ${s.text} —`);
+  return h("div", { class: "seg" + (s.kind === "note" ? " note" : "") },
+    h("span", { class: "meta" }, fmtClock(s.t)),
+    s.kind === "note" ? h("span", { class: "sp" }, "Note") : s.sp ? h("span", { class: "sp" }, s.sp) : null,
+    h("span", { class: "tx" }, s.text));
+}
+function renderTranscriptAll() {
+  const box = $("#tx");
+  const m = state.cur;
+  if (!box || !m) return;
+  state.segEls = new Map();
+  box.replaceChildren();
+  if (!m.segs.length) box.append(h("p", { class: "empty", id: "txEmpty" }, cap.dict ? "Tap Start listening. What people say shows up here." : "Type what's said below, or use your computer's dictation into the box."));
+  for (const s of m.segs) { const el = segEl(s); state.segEls.set(s.id, el); box.append(el); }
+  box.append(h("div", { class: "partial", id: "partial" }, state.partial || ""));
+  box.scrollTop = box.scrollHeight;
+  updateTxCount();
+}
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+function updateTxCount() { const c = $("#txCount"); if (c && state.cur) c.textContent = plural(state.cur.segs.length, "line"); }
+function renderSegUpdate(s) {
+  const box = $("#tx");
+  if (!box) return;
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 90;
+  const empty = $("#txEmpty");
+  if (empty) empty.remove();
+  const existing = state.segEls.get(s.id);
+  if (existing) { const tx = $(".tx", existing); if (tx) tx.textContent = s.text; }
+  else {
+    const el = segEl(s);
+    state.segEls.set(s.id, el);
+    const partial = $("#partial");
+    if (partial) box.insertBefore(el, partial); else box.append(el);
+  }
+  if (nearBottom) box.scrollTop = box.scrollHeight;
+  updateTxCount();
+}
+function renderPartial() {
+  const p = $("#partial");
+  const box = $("#tx");
+  if (!p || !box) return;
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 90;
+  p.textContent = state.partial || "";
+  if (nearBottom) box.scrollTop = box.scrollHeight;
+}
+function renderLivePanels() {
+  renderSay();
+  renderSituation();
+  const vb = $("#visBody");
+  if (vb) vb.replaceChildren(renderVisual(state.cur && state.cur.live ? state.cur.live.visual : null));
+  if (state.cur && state.cur.mode === "werewolf") renderBoard(); else renderDetail();
+}
+function renderSay() {
+  const body = $("#sayBody");
+  const m = state.cur;
+  if (!body || !m) return;
+  body.replaceChildren();
+  const opts = m.live ? m.live.say_next : [];
+  if (opts.length) {
+    for (const o of opts) {
+      body.append(h("div", { class: "say-opt" },
+        o.label ? h("div", { class: "say-label" }, o.label) : null,
+        h("p", { class: "say-line" }, o.line),
+        h("div", { class: "row" }, o.why ? h("span", { class: "say-why" }, o.why) : h("span", { class: "say-why" }), copyBtn(o.line))));
+    }
+  } else if (!state.sayNow) {
+    body.append(h("p", { class: "empty" }, m.mode === "werewolf" ? "Speeches to read out appear here as the game goes. When it's your turn, tap “What should I say?”." : "Suggestions appear here as people talk. Tap “What should I say?” any time you need words."));
+  }
+}
+function renderSayNow() {
+  const box = $("#sayNow");
+  if (!box) return;
+  const s = state.sayNow;
+  if (!s) { box.className = ""; box.replaceChildren(); return; }
+  box.className = "say-now";
+  box.replaceChildren(
+    h("div", { class: "row space" },
+      h("span", { class: "say-label" }, s.busy ? (s.text ? "Writing…" : "Thinking…") : "For right now · " + clockTime(s.at)),
+      h("div", { class: "row" },
+        s.text && !s.busy ? copyBtn(stripMd(s.text)) : null,
+        s.busy ? h("button", { type: "button", class: "btn small ghost", onclick: () => { if (state.sayCtl) state.sayCtl.abort(); } }, "Stop") : h("button", { type: "button", class: "btn small ghost", onclick: () => { state.sayNow = null; renderSayNow(); renderSay(); } }, "Clear"))),
+    s.text ? h("div", { class: "md", html: md(s.text) }) : null);
+}
+function renderSituation() {
+  const c = $("#sitBody");
+  if (!c) return;
+  c.replaceChildren();
+  const l = state.cur && state.cur.live;
+  if (!l) { c.append(h("p", { class: "empty" }, state.cur && state.cur.mode === "werewolf" ? "Once the table starts talking, AllKnowing sums up the game here." : "Once people start talking, AllKnowing describes the meeting and where it stands here.")); return; }
+  const stage = l.stage || l.phase;
+  if (stage) c.append(h("span", { class: "stage" }, stage));
+  if (l.situation) c.append(h("p", { class: "situation" }, l.situation));
+  if (l.watch_out && l.watch_out.length) c.append(h("ul", { class: "watch" }, l.watch_out.map((w) => h("li", { html: inline(w) }))));
+}
+function listBlock(title, items) {
+  if (!items || !items.length) return null;
+  return h("div", null, h("h3", { class: "sub" }, title), h("ul", { class: "plain-list" }, items.map((x) => h("li", { html: inline(x) }))));
+}
+function renderDetail() {
+  const c = $("#detailBody");
+  if (!c) return;
+  c.replaceChildren();
+  const l = state.cur && state.cur.live;
+  if (!l) { c.append(h("p", { class: "empty" }, "Topics, decisions, open questions and action items build up here.")); return; }
+  if (l.discussed.length) c.append(h("div", null, h("h3", { class: "sub", style: "margin-top:0" }, "Discussed"), h("div", { class: "topics" }, l.discussed.map((t) => h("div", { class: "topic" }, h("h3", null, t.topic), t.points.length ? h("ul", { class: "plain-list" }, t.points.map((p) => h("li", { html: inline(p) }))) : null)))));
+  const blocks = [listBlock("Decisions", l.decisions), listBlock("Open questions", l.open_questions)];
+  if (l.actions.length) blocks.push(h("div", null, h("h3", { class: "sub" }, "Action items"), h("ul", { class: "plain-list" }, l.actions.map((a) => h("li", null, a.task, a.owner ? h("span", { class: "muted" }, " · " + a.owner) : null, a.due ? h("span", { class: "muted" }, " · " + a.due) : null)))));
+  c.append(...blocks.filter(Boolean));
+  if (!c.childNodes.length) c.append(h("p", { class: "empty" }, "Nothing concrete yet."));
+}
+function renderBoard() {
+  const c = $("#boardBody");
+  const m = state.cur;
+  if (!c || !m) return;
+  c.replaceChildren();
+  const g = m.game, l = m.live;
+  const out = new Set(g.out);
+  const seats = h("div", { class: "seats" });
+  for (let i = 1; i <= g.players; i++) {
+    const p = l && l.players ? l.players[i - 1] : null;
+    const me = i === Number(g.seat);
+    const read = me ? "me" : (p && p.read) || "unsure";
+    const isOut = out.has(i) || (p && p.status === "out");
+    const tag = me ? "Me" : read === "wolf" ? "Wolf?" : read === "good" ? "Good?" : "";
+    seats.append(h("div", { class: `seat ${read}${me ? " me" : ""}${isOut ? " out" : ""}`, title: p && p.note ? p.note : "" },
+      h("div", { class: "row space" }, h("span", { class: "num" }, "#" + i), h("span", { class: "tag" }, tag)),
+      p && p.claim ? h("span", { class: "claim" }, p.claim) : null,
+      !me && p && p.confidence ? h("div", { class: "conf", title: `${p.confidence}% sure` }, h("i", { style: `width:${p.confidence}%` })) : null,
+      p && p.note ? h("span", { class: "note" }, p.note) : null));
+  }
+  c.append(seats);
+  if (!l) { c.append(h("p", { class: "empty" }, "Reads on each seat, who to vote and tonight's move appear here once the table is talking.")); return; }
+  c.append(h("div", { class: "verdicts" },
+    h("div", { class: "verdict" }, h("span", { class: "eyebrow" }, "Vote"), h("strong", null, l.vote.seat ? "#" + l.vote.seat : "No vote yet"), l.vote.why ? h("span", { class: "muted" }, l.vote.why) : null),
+    l.night ? h("div", { class: "verdict" }, h("span", { class: "eyebrow" }, "Tonight"), h("span", null, l.night)) : null));
+  if (l.events.length) c.append(h("h3", { class: "sub" }, "What's happened"), h("ol", { class: "plain-list" }, l.events.map((e) => h("li", { html: inline(e) }))));
+}
+async function endMeeting() {
+  const m = state.cur;
+  if (!m) return;
+  if (isListening()) await stopListening();
+  m.endedAt = Date.now();
+  state.dirtyMeeting = true;
+  await flushSaves();
+  go("after");
+  if (!m.minutes && (m.segs.length || m.live)) generateMinutes();
+}
+
+/* ---------- minutes view ---------- */
+function minutesMarkdown(m) {
+  const n = m.minutes;
+  if (!n) return "";
+  const lines = [`# ${titleOf(m)}`, "", `${fmtDate(m.startedAt || m.createdAt)}${m.prep.attendees && m.mode === "meeting" ? ` · ${m.prep.attendees}` : ""}`, ""];
+  const list = (title, items) => { if (items && items.length) lines.push(`## ${title}`, "", ...items.map((x) => `- ${x}`), ""); };
+  if (m.mode === "werewolf") {
+    if (n.result) lines.push(`**Result:** ${n.result}`, "");
+    if (n.summary) lines.push(n.summary, "");
+    list("Timeline", n.timeline); list("Key moments", n.key_moments); list("How I played", n.my_play); list("Next time", n.next_time);
+  } else {
+    if (n.summary) lines.push("## Summary", "", n.summary, "");
+    list("Key points", n.key_points); list("Decisions", n.decisions);
+    if (n.actions.length) lines.push("## Action items", "", "| Task | Owner | Due |", "|---|---|---|", ...n.actions.map((a) => `| ${a.task.replace(/\|/g, "/")} | ${a.owner} | ${a.due} |`), "");
+    list("Open questions", n.open_questions);
+    if (n.follow_up_email.body) lines.push("## Follow-up email", "", `**Subject:** ${n.follow_up_email.subject}`, "", n.follow_up_email.body, "");
+    if (n.zh_hant) {
+      lines.push("## 繁體中文", "");
+      if (n.zh_hant.summary) lines.push(n.zh_hant.summary, "");
+      list("重點", n.zh_hant.key_points); list("決定", n.zh_hant.decisions);
+      if (n.zh_hant.actions.length) list("跟進事項", n.zh_hant.actions.map((a) => [a.task, a.owner, a.due].filter(Boolean).join(" · ")));
+    }
+  }
+  return lines.join("\n");
+}
+const transcriptText = (m) => m.segs.map((s) => (s.kind === "event" ? `— ${s.text} —` : `[${fmtClock(s.t)}] ${s.kind === "note" ? "(note) " : s.sp ? s.sp + ": " : ""}${s.text}`)).join("\n");
+async function saveFile(filename, data) {
+  if (!cap.downloads) { await copy(data); toast("Downloads aren't available here, so it was copied to your clipboard instead.", "warn", 6000); return; }
+  try { await cap.downloads.save({ filename, data }); }
+  catch (e) { const code = e && e.code; if (code && !/cancel|declin|dismiss/.test(code)) toast(`Couldn't save the file (${code}).`, "bad"); }
+}
+function renderAfter() {
+  const v = $("#view-after");
+  v.replaceChildren();
+  const m = state.cur;
+  if (!m) { v.append(emptyView("Minutes appear here after a meeting or game.")); return; }
+  const ww = m.mode === "werewolf";
+  const n = m.minutes;
+  const dur = m.startedAt ? fmtDuration(((m.endedAt || Date.now()) - m.startedAt) / 1000) : "";
+  v.append(h("div", { class: "card", style: "margin-bottom:16px" },
+    h("div", { class: "row space" },
+      h("div", null, h("h1", { style: "font-size:24px" }, titleOf(m)), h("p", { class: "muted", style: "margin:4px 0 0" }, [fmtDate(m.startedAt || m.createdAt), dur, plural(m.segs.length, "transcript line")].filter(Boolean).join(" · "))),
+      h("div", { class: "row" },
+        h("button", { type: "button", class: "btn primary", id: "minBtn", onclick: generateMinutes }, n ? (ww ? "Rewrite recap" : "Rewrite minutes") : ww ? "Write the recap" : "Write the minutes"),
+        n ? h("button", { type: "button", class: "btn", onclick: () => saveFile(`${safeName(titleOf(m))} - ${ww ? "recap" : "minutes"}.md`, minutesMarkdown(m)) }, "Download") : null,
+        n ? h("button", { type: "button", class: "btn", onclick: () => copy(minutesMarkdown(m)) }, "Copy") : null,
+        m.segs.length ? h("button", { type: "button", class: "btn ghost", onclick: () => saveFile(`${safeName(titleOf(m))} - transcript.txt`, transcriptText(m)) }, "Transcript") : null,
+        h("button", { type: "button", class: "btn ghost", onclick: () => go("live") }, "Back to live"))),
+    h("div", { id: "minStatus", class: "status-line", style: "margin-top:8px" })));
+  if (state.minutesBusy) setMinutesStatus("Writing… usually 30-90 seconds.", "busy");
+  if (!n) {
+    v.append(h("div", { class: "card" }, h("p", { class: "empty" }, ww ? "Tap “Write the recap” for who won, the turning points and what to do better next time." : "Tap “Write the minutes” for a summary, key points, decisions, action items with owners and dates, open questions and a follow-up email.")));
+    v.append(transcriptDetails(m));
+    return;
+  }
+  if (ww) {
+    v.append(h("div", { class: "after-grid" },
+      h("div", { class: "card stack" }, n.result ? h("p", { class: "plan-hero" }, n.result) : null, n.summary ? h("p", null, n.summary) : null, listBlock("Timeline", n.timeline)),
+      h("div", { class: "card stack" }, listBlock("Turning points", n.key_moments), listBlock("How you played", n.my_play), listBlock("Next time", n.next_time)),
+      h("div", { class: "card span-2" }, renderVisual(n.visual))));
+  } else {
+    const email = n.follow_up_email;
+    v.append(h("div", { class: "after-grid" },
+      h("div", { class: "card span-2" }, h("h2", { style: "font-size:16px;margin-bottom:8px" }, "Summary"), h("p", { style: "margin:0;font-size:16px" }, n.summary)),
+      h("div", { class: "card span-2" }, renderVisual(n.visual)),
+      h("div", { class: "card stack" }, listBlock("Key points", n.key_points) || h("p", { class: "empty" }, "No key points.")),
+      h("div", { class: "card stack" }, listBlock("Decisions", n.decisions) || h("p", { class: "empty" }, "No decisions recorded."), listBlock("Open questions", n.open_questions)),
+      h("div", { class: "card span-2" }, h("div", { class: "card-head" }, h("h2", null, "Action items"), h("span", { class: "muted small-text" }, "Also in Follow-ups")), h("div", { id: "actionsTable" })),
+      email.body ? h("div", { class: "card span-2 stack" },
+        h("div", { class: "card-head" }, h("h2", null, "Follow-up email"), h("div", { class: "row" }, copyBtn(`${email.subject}\n\n${email.body}`), cap.mcp ? h("button", { type: "button", class: "btn small", onclick: () => openEmailModal(m) }, "Draft it in Outlook") : null)),
+        h("strong", null, email.subject), h("pre", { class: "email" }, email.body)) : null,
+      n.zh_hant ? h("details", { class: "card span-2" }, h("summary", null, "繁體中文版本"),
+        h("div", { class: "stack", style: "margin-top:10px" }, n.zh_hant.summary ? h("p", null, n.zh_hant.summary) : null, listBlock("重點", n.zh_hant.key_points), listBlock("決定", n.zh_hant.decisions),
+          listBlock("跟進事項", n.zh_hant.actions.map((a) => [a.task, a.owner, a.due].filter(Boolean).join(" · "))))) : null));
+    renderActionsTable();
+  }
+  v.append(transcriptDetails(m));
+}
+function transcriptDetails(m) {
+  if (!m.segs.length) return h("div");
+  return h("details", { class: "card", style: "margin-top:16px" }, h("summary", null, `Full transcript (${plural(m.segs.length, "line")})`),
+    h("div", { class: "stack", style: "margin-top:10px;gap:6px" }, m.segs.map(segEl)));
+}
+function todoFor(m, a) {
+  const k = normKey(a.task);
+  return state.todos.find((t) => t.meetingId === m.id && normKey(t.task) === k);
+}
+function renderActionsTable() {
+  const box = $("#actionsTable");
+  const m = state.cur;
+  if (!box || !m || !m.minutes || !m.minutes.actions) return;
+  box.replaceChildren();
+  const acts = m.minutes.actions;
+  if (!acts.length) { box.append(h("p", { class: "empty" }, "No action items.")); return; }
+  box.append(h("table", { class: "actions-table" },
+    h("thead", null, h("tr", null, h("th", null, "Task"), h("th", null, "Owner"), h("th", null, "Due"), h("th", null, "Calendar"))),
+    h("tbody", null, acts.map((a) => {
+      const t = todoFor(m, a);
+      return h("tr", null,
+        h("td", null, a.task, a.priority === "high" ? h("span", { class: "prio" }, "High") : null),
+        h("td", null, a.owner),
+        h("td", { class: "muted" }, a.due),
+        h("td", null, t && t.eventLink ? h("a", { href: t.eventLink, target: "_blank", rel: "noopener" }, "In Outlook") : cap.mcp ? h("button", { type: "button", class: "btn small", onclick: async () => { const td = t || (await createTodoFromAction(m, a)); openCalendarModal(td); } }, "Add") : h("span", { class: "muted" }, "—")));
+    }))));
+}
+async function createTodoFromAction(m, a) {
+  const t = { id: uid(), task: a.task, owner: a.owner || "", due: a.due || "", done: false, meetingId: m.id, meetingTitle: titleOf(m), createdAt: Date.now(), eventLink: "", eventAt: "" };
+  await saveTodo(t);
+  if (!state.todos.find((x) => x.id === t.id)) state.todos.push(t);
+  return t;
+}
+async function addActionsAsTodos(m) {
+  let n = 0;
+  for (const a of m.minutes.actions) {
+    if (todoFor(m, a)) continue;
+    await createTodoFromAction(m, a);
+    n++;
+  }
+  return n;
+}
+function textToHtml(s) {
+  return String(s || "").split(/\n{2,}/).map((p) => `<p>${esc(p).replace(/\n/g, "<br>")}</p>`).join("");
+}
+function openEmailModal(m) {
+  if (!cap.mcp) return;
+  const n = m.minutes;
+  const to = h("input", { class: "inp", value: emailsIn(m.prep.attendees).join(", "), placeholder: "name@company.com, …" });
+  const subject = h("input", { class: "inp", value: n.follow_up_email.subject || `Follow-up: ${titleOf(m)}` });
+  const actionsText = n.actions.length ? "\n\nNext steps:\n" + n.actions.map((a) => `- ${a.task}${a.owner ? ` (${a.owner}${a.due ? `, ${a.due}` : ""})` : ""}`).join("\n") : "";
+  const bodyText = (n.follow_up_email.body || "") + (n.follow_up_email.body && /next steps|action/i.test(n.follow_up_email.body) ? "" : actionsText);
+  const body = h("textarea", { class: "inp", rows: "10" }, bodyText);
+  const status = h("p", { class: "status-line" });
+  const createBtn = h("button", { type: "button", class: "btn primary" }, "Create draft");
+  const md2 = modal("Draft the follow-up in Outlook", h("div", { class: "form" },
+    h("div", { class: "field" }, h("span", { class: "label" }, "To"), to),
+    h("div", { class: "field" }, h("span", { class: "label" }, "Subject"), subject),
+    h("div", { class: "field" }, h("span", { class: "label" }, "Message"), body),
+    h("p", { class: "muted small-text", style: "margin:0" }, "This saves a draft in your Outlook Drafts folder. Nothing is sent. Review it and send from Outlook."),
+    status), [h("button", { type: "button", class: "btn", onclick: () => md2.close() }, "Cancel"), createBtn]);
+  createBtn.addEventListener("click", async () => {
+    const list = emailsIn(to.value);
+    createBtn.disabled = true;
+    status.className = "status-line busy";
+    status.textContent = "Saving the draft…";
+    try {
+      const input = { subject: subject.value.trim(), body: textToHtml(body.value), bodyType: "html" };
+      if (list.length) input.to = list;
+      const res = await cap.mcp.callTool(SERVER, "outlook_create_draft", input);
+      const p = obj(res && res.payload);
+      const link = p.webLink || obj(p.message).webLink || "";
+      md2.close();
+      if (link) {
+        const md3 = modal("Draft saved", h("p", null, "Your draft is in Outlook Drafts. ", h("a", { href: link, target: "_blank", rel: "noopener" }, "Open it in Outlook")), [h("button", { type: "button", class: "btn", onclick: () => md3.close() }, "Done")]);
+      } else toast("Draft saved in your Outlook Drafts folder.", "good", 6000);
+    } catch (e) {
+      status.className = "status-line bad";
+      status.textContent = mcpErrorText(e);
+      createBtn.disabled = false;
+    }
+  });
+}
+
+/* ---------- follow-ups and calendar ---------- */
+function byDue(a, b) {
+  const da = a.due || "9999-12-31", dbb = b.due || "9999-12-31";
+  return da === dbb ? (a.createdAt || 0) - (b.createdAt || 0) : da < dbb ? -1 : 1;
+}
+function todoRow(t, compact = false) {
+  const today = localISODate();
+  const overdue = !t.done && t.due && t.due < today;
+  const dateIn = h("input", { type: "date", value: t.due || "", "aria-label": "Due date", onchange: (e) => saveTodo({ ...t, due: e.target.value }) });
+  return h("div", { class: "todo" + (t.done ? " done" : "") },
+    h("input", { type: "checkbox", checked: !!t.done, "aria-label": "Done", onchange: (e) => saveTodo({ ...t, done: e.target.checked, doneAt: e.target.checked ? Date.now() : null }) }),
+    h("div", { style: "min-width:0" },
+      h("div", { class: "todo-task" }, t.task),
+      h("div", { class: "todo-meta" },
+        t.owner ? h("span", null, t.owner) : null,
+        compact ? (t.due ? h("span", { class: overdue ? "due-bad" : "" }, (overdue ? "Overdue · " : "Due ") + t.due) : null) : h("span", { class: overdue ? "due-bad" : "" }, overdue ? "Overdue" : "Due", " ", dateIn),
+        t.meetingTitle ? h("button", { type: "button", class: "btn small ghost", style: "padding:0 4px", onclick: () => t.meetingId && openMeeting(t.meetingId, "after") }, t.meetingTitle) : null,
+        t.eventLink ? h("a", { href: t.eventLink, target: "_blank", rel: "noopener" }, "In Outlook" + (t.eventAt ? ` · ${t.eventAt}` : "")) : null)),
+    h("div", { class: "row" },
+      !t.eventLink && !t.done && cap.mcp ? h("button", { type: "button", class: "btn small", onclick: () => openCalendarModal(t) }, "Add to calendar") : null,
+      compact ? null : h("button", { type: "button", class: "btn small ghost", "aria-label": "Delete follow-up", onclick: () => { removeTodo(t.id); toast("Deleted."); } }, "Delete")));
+}
+function renderTodos() {
+  const v = $("#view-todos");
+  v.replaceChildren();
+  const today = localISODate(), week = localISODate(addDays(new Date(), 7));
+  const filter = state.todoFilter;
+  const all = state.todos.slice().sort(byDue);
+  const shown = all.filter((t) => (filter === "open" ? !t.done : filter === "done" ? t.done : true));
+  const task = h("input", { class: "inp", placeholder: "Add a follow-up…", "aria-label": "New follow-up" });
+  const due = h("input", { class: "inp", type: "date", "aria-label": "Due date" });
+  const add = async () => {
+    if (!task.value.trim()) return;
+    await saveTodo({ id: uid(), task: task.value.trim(), owner: "", due: due.value, done: false, meetingId: state.cur ? state.cur.id : "", meetingTitle: "", createdAt: Date.now(), eventLink: "", eventAt: "" });
+    task.value = ""; due.value = "";
+    renderTodos();
+  };
+  task.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) add(); });
+  const filterBtn = (key, label) => h("button", { type: "button", class: "btn small", "aria-pressed": String(filter === key), onclick: () => { state.todoFilter = key; renderTodos(); } }, label);
+  const card = h("div", { class: "card" },
+    h("div", { class: "card-head" }, h("h1", { style: "font-size:24px" }, "Follow-ups"), h("div", { class: "row" }, filterBtn("open", `Open (${all.filter((t) => !t.done).length})`), filterBtn("done", "Done"), filterBtn("all", "All"))),
+    h("div", { class: "add-todo" }, task, due, h("button", { type: "button", class: "btn primary", onclick: add }, "Add")));
+  if (!shown.length) card.append(h("p", { class: "empty", style: "margin-top:14px" }, filter === "done" ? "Nothing ticked off yet." : "No open follow-ups. Action items from your minutes land here automatically."));
+  else if (filter === "open") {
+    const groups = [["Overdue", (t) => t.due && t.due < today], ["Today", (t) => t.due === today], ["Next 7 days", (t) => t.due > today && t.due <= week], ["Later", (t) => t.due > week], ["No date", (t) => !t.due]];
+    for (const [label, test] of groups) {
+      const items = shown.filter(test);
+      if (items.length) card.append(h("h3", { class: "sub group-title" }, label), h("div", null, items.map((t) => todoRow(t))));
+    }
+  } else card.append(h("div", { style: "margin-top:10px" }, shown.map((t) => todoRow(t))));
+  v.append(card);
+}
+function openCalendarModal(t) {
+  if (!cap.mcp) { toast("Outlook isn't available here. Open AllKnowing in claude.ai with the Microsoft 365 connector added.", "warn", 7000); return; }
+  const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone) || "UTC";
+  const defaultDate = /^\d{4}-\d{2}-\d{2}$/.test(t.due || "") && t.due >= localISODate() ? t.due : localISODate(addDays(new Date(), 1));
+  const title = h("input", { class: "inp", value: `Follow up: ${t.task}`.slice(0, 250) });
+  const date = h("input", { class: "inp", type: "date", value: defaultDate });
+  const time = h("input", { class: "inp", type: "time", value: "09:00" });
+  const length = h("select", { class: "inp" }, [["15", "15 min"], ["30", "30 min"], ["45", "45 min"], ["60", "1 hour"], ["90", "1.5 hours"]].map(([v2, l]) => h("option", { value: v2 }, l)));
+  length.value = "30";
+  const notes = h("textarea", { class: "inp", rows: "4" }, [t.task, t.owner ? `Owner: ${t.owner}` : "", t.meetingTitle ? `From: ${t.meetingTitle}` : ""].filter(Boolean).join("\n"));
+  const busy = h("input", { type: "checkbox", checked: true });
+  const status = h("p", { class: "status-line" });
+  const addBtn = h("button", { type: "button", class: "btn primary" }, "Add to Outlook");
+  const md2 = modal("Add to your Outlook calendar", h("div", { class: "form" },
+    h("div", { class: "field" }, h("span", { class: "label" }, "Title"), title),
+    h("div", { class: "three" }, h("div", { class: "field" }, h("span", { class: "label" }, "Date"), date), h("div", { class: "field" }, h("span", { class: "label" }, "Time"), time), h("div", { class: "field" }, h("span", { class: "label" }, "Length"), length)),
+    h("div", { class: "field" }, h("span", { class: "label" }, "Notes"), notes),
+    h("label", { class: "check" }, busy, "Block the time (show as busy)"),
+    h("p", { class: "muted small-text", style: "margin:0" }, `Only you. No invitations are sent. Time zone: ${tz}.`),
+    status), [h("button", { type: "button", class: "btn", onclick: () => md2.close() }, "Cancel"), addBtn]);
+  addBtn.addEventListener("click", async () => {
+    if (!date.value || !time.value) { status.className = "status-line bad"; status.textContent = "Pick a date and time."; return; }
+    const start = new Date(`${date.value}T${time.value}:00`);
+    if (isNaN(start)) { status.className = "status-line bad"; status.textContent = "That date or time doesn't look right."; return; }
+    const end = new Date(start.getTime() + Number(length.value) * 60000);
+    addBtn.disabled = true;
+    status.className = "status-line busy";
+    status.textContent = "Adding to Outlook…";
+    try {
+      const res = await cap.mcp.callTool(SERVER, "outlook_create_event", {
+        subject: title.value.trim().slice(0, 255) || "Follow up",
+        start: { dateTime: localISODateTime(start), timeZone: tz },
+        end: { dateTime: localISODateTime(end), timeZone: tz },
+        body: notes.value,
+        bodyType: "text",
+        showAs: busy.checked ? "busy" : "free",
+      });
+      const p = obj(res && res.payload);
+      const link = p.webLink || obj(p.event).webLink || "";
+      const when = `${date.value} ${time.value}`;
+      await saveTodo({ ...t, eventLink: link || "https://outlook.office.com/calendar/", eventAt: when, due: t.due || date.value });
+      md2.close();
+      toast("Added to your Outlook calendar.", "good");
+      if (state.route === "after") renderActionsTable();
+      if (state.route === "todos") renderTodos();
+    } catch (e) {
+      status.className = "status-line bad";
+      status.textContent = mcpErrorText(e);
+      addBtn.disabled = false;
+    }
+  });
+}
+
+/* ---------- boot ---------- */
+function wireNav() {
+  for (const b of $$(".nav button")) b.addEventListener("click", () => go(b.dataset.route));
+  window.addEventListener("hashchange", () => { const r = location.hash.slice(1); if (ROUTES.includes(r) && r !== state.route) go(r); });
+}
+let started = false;
+function start(hotData) {
+  if (started) return;
+  started = true;
+  wireNav();
+  go("home");
+  init(obj(hotData)).catch((e) => { console.error(e); toast("Something went wrong while loading. Reload the page.", "bad", 8000); });
+}
+async function init(hotData) {
+  await initCaps();
+  if (!window.claude) setBanner("Open AllKnowing in claude.ai to use listening, Claude and Outlook. Here it only keeps notes in this browser.");
+  bindDictation();
+  if (cap.sample) { try { const lim = await cap.sample.limits(); state.imagesOK = !!(lim && lim.images); } catch { state.imagesOK = false; } }
+  await initStore();
+  await loadSettings();
+  subscribeLists();
+  const want = hotData.meetingId || safeLocalGet("lastMeeting");
+  if (want) {
+    try { const m = await loadMeeting(want); if (m) { state.cur = m; resetLiveRuntime(); } } catch (e) { console.warn(e); }
+  }
+  state.booted = true;
+  const fromHash = location.hash.slice(1);
+  const r = hotData.route || (ROUTES.includes(fromHash) ? fromHash : "home");
+  go(state.cur || !["prep", "live", "after"].includes(r) ? r : "home");
+}
+const hot = window.claude && window.claude.hot;
+try { if (hot && hot.snapshot) hot.snapshot(() => ({ route: state.route, meetingId: state.cur ? state.cur.id : null })); } catch { /* ignore */ }
+if (hot && hot.ready) hot.ready(start); else start((hot && hot.data) || {});
+})();
+</script>
+</body>
+</html>

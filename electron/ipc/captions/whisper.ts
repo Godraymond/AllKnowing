@@ -150,6 +150,28 @@ export async function downloadWhisperSmallModel(
 	}
 }
 
+/** Returns the small model's path, downloading it first if it isn't there yet. */
+export async function ensureWhisperSmallModel(
+	onProgress: (progress: number) => void,
+): Promise<string> {
+	const status = await getWhisperSmallModelStatus();
+	if (status.exists && status.path) {
+		return status.path;
+	}
+
+	await fs.mkdir(WHISPER_MODEL_DIR, { recursive: true });
+	const tempPath = `${WHISPER_SMALL_MODEL_PATH}.download`;
+	try {
+		await fs.rm(tempPath, { force: true });
+		await downloadFileWithProgress(WHISPER_MODEL_DOWNLOAD_URL, tempPath, onProgress);
+		await fs.rename(tempPath, WHISPER_SMALL_MODEL_PATH);
+		return WHISPER_SMALL_MODEL_PATH;
+	} catch (error) {
+		await fs.rm(tempPath, { force: true }).catch(() => undefined);
+		throw error;
+	}
+}
+
 export async function deleteWhisperSmallModel(): Promise<void> {
 	await fs.rm(WHISPER_SMALL_MODEL_PATH, { force: true });
 }

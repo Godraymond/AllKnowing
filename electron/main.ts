@@ -29,6 +29,7 @@ import { ensureMediaServer } from "./mediaServer";
 import { hardenWebContentsNavigation, shouldHardenWebContentsType } from "./navigationPolicy";
 import { shouldGrantDisplayCapture, shouldGrantMediaPermission } from "./permissionPolicy";
 import { ensurePackagedRendererServer, getPackagedRendererBaseUrl } from "./rendererServer";
+import { startTranscribeRecording, TRANSCRIBE_ARG } from "./transcribeRecording";
 import {
 	checkForAppUpdates,
 	deferUpdateReminder,
@@ -470,6 +471,11 @@ function setupApplicationMenu() {
 					accelerator: "CmdOrCtrl+Shift+S",
 					click: () => sendEditorMenuAction("menu-save-project-as"),
 				},
+				{ type: "separator" },
+				{
+					label: "Transcribe a Recording…",
+					click: () => void startTranscribeRecording(),
+				},
 				...(isMac
 					? []
 					: [
@@ -735,6 +741,10 @@ function updateTrayMenu(recording: boolean = false) {
 					},
 				},
 				{
+					label: "Transcribe a Recording…",
+					click: () => void startTranscribeRecording(),
+				},
+				{
 					label: "Quit",
 					click: () => {
 						app.quit();
@@ -883,9 +893,40 @@ app.on("activate", () => {
 	focusOrCreateMainWindow();
 });
 
-app.on("second-instance", () => {
+app.on("second-instance", (_event, argv) => {
+	if (argv.includes(TRANSCRIBE_ARG)) {
+		void startTranscribeRecording();
+		return;
+	}
 	focusOrCreateMainWindow();
 });
+
+// "Transcribe a Recording…" from the taskbar (Windows) and the Dock (macOS),
+// as well as the File menu and, on Linux, the tray.
+function setupTranscribeShortcuts() {
+	if (process.platform === "win32" && app.isPackaged) {
+		app.setUserTasks([
+			{
+				program: process.execPath,
+				arguments: TRANSCRIBE_ARG,
+				iconPath: process.execPath,
+				iconIndex: 0,
+				title: "Transcribe a recording…",
+				description: "Turn an audio or video file into a transcript on this computer",
+			},
+		]);
+	}
+	if (process.platform === "darwin" && app.dock) {
+		app.dock.setMenu(
+			Menu.buildFromTemplate([
+				{
+					label: "Transcribe a Recording…",
+					click: () => void startTranscribeRecording(),
+				},
+			]),
+		);
+	}
+}
 
 // Register all IPC handlers when app is ready
 app.whenReady().then(async () => {
@@ -980,6 +1021,7 @@ app.whenReady().then(async () => {
 		updateTrayMenu();
 	}
 	setupApplicationMenu();
+	setupTranscribeShortcuts();
 	await Promise.all([
 		ensureRecordingsDir(),
 		!VITE_DEV_SERVER_URL
@@ -1035,6 +1077,9 @@ app.whenReady().then(async () => {
 
 	createWindow();
 	setupAutoUpdates(getUpdateDialogWindow, sendUpdateToastToWindows);
+	if (process.argv.includes(TRANSCRIBE_ARG)) {
+		void startTranscribeRecording();
+	}
 	if (IS_DEV && process.env.RECORDLY_DEV_PREVIEW_UPDATE === "1") {
 		setTimeout(() => {
 			if (process.platform === "darwin") {

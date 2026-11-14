@@ -2574,7 +2574,7 @@ function mediaHelp(imp) {
     h("strong", null, `${imp.media.join(", ")} ${imp.media.length === 1 ? "is a recording" : "are recordings"}. Turn it into a transcript first.`),
     h("span", null, "This page can't listen to a file, but any of these gives you a transcript to add here:"),
     h("ol", null,
-      h("li", null, "AllKnowing desktop app 1.4.2 or later, on your PC or Mac: right-click the AllKnowing icon in the taskbar tray (on a Mac, click it in the menu bar), choose Transcribe a recording… and pick the file. It saves a .txt and an .srt next to the recording, on your own computer. Then add the .srt here."),
+      h("li", null, "Recordly, the desktop app (version 1.4.2 or later): right-click its icon in the taskbar or Dock, choose Transcribe a recording… and pick the file. It's transcribed on your own computer and saved as a .txt and an .srt next to the recording. Paste the text below or add the .srt."),
       h("li", null, "A Teams meeting that had transcription on: use “From a Teams meeting”."),
       h("li", null, "Phone apps that transcribe, such as Otter or 飞书妙记: export the transcript as text and add it here.")),
     h("button", { type: "button", class: "btn small ghost", style: "justify-self:start", onclick: () => { imp.media = []; renderImport(); } }, "Got it"));

@@ -30,7 +30,9 @@ function startRelay(extraEnv = {}) {
 		AK_RELAY_PORT: String(port),
 		AK_RELAY_CODE: CODE,
 		AK_RELAY_CLAUDE: FAKE,
-		AK_RELAY_HOLD_MS: "300",
+		// Long enough for a slow test machine to start the stand-in and report an early failure.
+		AK_RELAY_HOLD_MS: "1500",
+		FAKE_CLAUDE_LATE_MS: "2600",
 		AK_RELAY_KEEP_AWAKE: "0",
 		AK_RELAY_MAX_JOBS: "2",
 		ANTHROPIC_API_KEY: "sk-ant-must-not-reach-claude-code",
@@ -97,6 +99,16 @@ const ask = (relay, prompt, opts = {}) =>
 		}),
 		signal: opts.signal,
 	});
+// An error answer, whether it came as JSON (before the answer started) or as an event in the stream.
+async function errorOf(res) {
+	const raw = await res.text();
+	try {
+		return JSON.parse(raw).error || {};
+	} catch {
+		const ev = readSse(raw).error;
+		return Object.assign({ cameAsStream: true }, ev ? ev.error : {});
+	}
+}
 // The streamed answer: its text, how it stopped, and any error event.
 function readSse(raw) {
 	const events = raw
@@ -156,7 +168,7 @@ const alive = (pid) => {
 	});
 	ok("another website's preflight is not", !evil.headers.get("access-control-allow-origin"));
 	const noKey = await ask(relay, "Hello", { key: "" });
-	const noKeyBody = await noKey.json();
+	const noKeyBody = { error: await errorOf(noKey) };
 	ok(
 		"without the pairing code: refused, with words for the user",
 		noKey.status === 401 &&
@@ -239,7 +251,7 @@ const alive = (pid) => {
 
 	// ---- failures ----
 	const r4 = await ask(relay, "MODE=notloggedin");
-	const b4 = await r4.json();
+	const b4 = { error: await errorOf(r4) };
 	ok(
 		"not signed in: 401 that says how to sign in",
 		r4.status === 401 &&
@@ -248,7 +260,7 @@ const alive = (pid) => {
 		JSON.stringify(b4),
 	);
 	const r5 = await ask(relay, "MODE=limit");
-	const b5 = await r5.json();
+	const b5 = { error: await errorOf(r5) };
 	ok(
 		"out of plan usage: 429 that says when it resets",
 		r5.status === 429 &&
@@ -257,7 +269,7 @@ const alive = (pid) => {
 		JSON.stringify(b5),
 	);
 	const r6 = await ask(relay, "MODE=crash");
-	const b6 = await r6.json();
+	const b6 = { error: await errorOf(r6) };
 	ok(
 		"Claude Code crashing: 500 with its words",
 		r6.status === 500 && /Something broke inside Claude Code/.test(b6.error.message),
@@ -281,7 +293,7 @@ const alive = (pid) => {
 	const s9 = readSse(await r9.text());
 	ok(
 		"the stream opens before Claude starts writing",
-		r9.status === 200 && headersAt < 600 && s9.text === "Late words",
+		r9.status === 200 && headersAt < 2400 && s9.text === "Late words",
 		`${headersAt}ms`,
 	);
 
@@ -306,7 +318,7 @@ const alive = (pid) => {
 	const busy2 = ask(relay, "MODE=slow", { signal: c2.signal }).catch(() => null);
 	await sleep(400);
 	const r10 = await ask(relay, "MODE=whole third");
-	const b10 = await r10.json();
+	const b10 = { error: await errorOf(r10) };
 	ok(
 		"more requests at once than allowed: 429 that says so",
 		r10.status === 429 && /already answering/.test(b10.error.message),
@@ -359,7 +371,7 @@ const alive = (pid) => {
 		await fetch(`${none.base}/health`, { headers: { "x-api-key": CODE } })
 	).json();
 	const r12 = await ask(none, "Hello");
-	const b12 = await r12.json();
+	const b12 = { error: await errorOf(r12) };
 	ok(
 		"Claude Code not installed: health and answers say so",
 		h3.claude.found === false && r12.status === 500 && /wasn't found/.test(b12.error.message),

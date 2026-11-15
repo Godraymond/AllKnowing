@@ -168,6 +168,7 @@ main { padding: 20px; max-width: 1480px; margin: 0 auto; }
 .seg { font-size: 14.5px; line-height: 1.45; }
 .seg .meta { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
 .seg .sp { font-weight: 700; margin-right: 6px; }
+.seg .sp.unsure { color: var(--muted); }
 .seg.note { color: var(--warn); }
 .seg.event { text-align: center; color: var(--muted); font-size: 12.5px; font-weight: 700; letter-spacing: .04em; padding: 2px 0; }
 .partial { color: var(--muted); font-style: italic; min-height: 1.2em; }
@@ -213,6 +214,7 @@ main { padding: 20px; max-width: 1480px; margin: 0 auto; }
 .seat .conf i { display: block; height: 100%; background: currentColor; }
 .seat .note { font-size: 12px; color: var(--muted); line-height: 1.3; }
 .seat .guess { font-size: 12px; font-weight: 700; }
+.seat.speaking .num::after { content: " ●"; color: var(--bad); font-size: 11px; vertical-align: middle; }
 .seat.wolf .guess { color: var(--bad); }
 .seat.good .guess { color: var(--good); }
 .verdicts { display: grid; gap: 8px; margin-top: 12px; }
@@ -458,7 +460,7 @@ const BOARDS = [
   { id: "6-std", label: "6人 · 2狼 预言家 女巫 2民", players: 6 },
   { id: "custom", label: "Custom: describe it below", players: 0 },
 ];
-const DICT_LANGS = [["", "Auto (browser language)"], ["en", "English"], ["zh", "中文 普通话"], ["zh-HK", "粵語 Cantonese"], ["zh-TW", "國語 (台灣)"]];
+const DICT_LANGS = [["", "Auto (game or meeting language)"], ["en", "English"], ["zh", "中文 普通话"], ["zh-HK", "粵語 Cantonese"], ["zh-TW", "國語 (台灣)"]];
 const AI_LANGS = [["match", "Match the conversation"], ["en", "English"], ["zh-Hans", "简体中文"], ["zh-Hant", "繁體中文"]];
 const MEETING_LANGS = [["match", "Mixed / not sure"], ["en", "English"], ["zh", "普通话 Mandarin"], ["yue", "粵語 Cantonese"]];
 const TABLE_LANGS = [["zh", "普通话 Mandarin"], ["yue", "粵語 Cantonese"], ["en", "English"]];
@@ -488,6 +490,8 @@ const LIVE_MEETING_SHAPE = `{
   "watch_out": ["risk"]
 }`;
 const LIVE_GAME_SHAPE = `{
+  "speakers": [{"line": 12, "seat": 5, "sure": 80}],
+  "turn": {"speaking": 5, "next": 6, "direction": "up|down|unknown"},
   "phase": "current phase, e.g. 第1天白天发言",
   "situation": "2-3 sentences on where the game stands and what matters now",
   "players": [{"seat": 1, "status": "alive|out|unknown", "claim": "role claimed, or empty", "guess": "role you think they really have (狼人, 预言家, 女巫, 猎人, 守卫, 平民…), ? if unsure, or empty", "read": "wolf|good|unsure|me", "confidence": 50, "note": "main reason, citing what they said or did"}],
@@ -557,8 +561,14 @@ const state = {
   dictState: "idle",
   partial: "",
   speaker: "",
-  lastSeat: 0,
-  seatDir: 1,
+  tr: { seat: 0, by: "", ended: false, fresh: false, dir: 1 },
+  closeSeg: false,
+  lastHeardAt: 0,
+  uttOpen: false,
+  uttGap: 0,
+  myTurnAt: 0,
+  turnUpdateDue: false,
+  lastSpeech: null,
   openSegId: null,
   lastFinalAt: 0,
   segEls: new Map(),
@@ -580,6 +590,7 @@ const state = {
   imagesOK: false,
   todoFilter: "open",
   minutesBusy: false,
+  skipSetupLang: false,
 };
 const cap = { db: null, user: null, sample: null, dict: null, mcp: null, downloads: null };
 
@@ -835,6 +846,13 @@ const routeFor = (m) => (m.status === "done" ? "after" : m.status === "live" ? "
 function resetLiveRuntime() {
   const m = state.cur;
   state.speaker = "";
+  state.tr = m && m.mode === "werewolf" ? trackerAt(m, m.segs.length, { speaking: 0, next: 0, dir: 1 }) : newTracker();
+  state.closeSeg = false;
+  state.lastHeardAt = 0;
+  state.uttOpen = false;
+  state.myTurnAt = 0;
+  state.turnUpdateDue = false;
+  state.lastSpeech = null;
   state.openSegId = null;
   state.partial = "";
   state.lastAnalysisAt = 0;
@@ -1257,10 +1275,22 @@ function txLines(m, maxBytes) {
     const ts = timed ? `[${fmtClock(s.t)}]` : "-";
     if (s.kind === "event") return `${ts} — ${s.text} —`;
     if (s.kind === "note") return `${ts} (note) ${s.text}`;
-    return `${ts} ${s.sp ? "[" + s.sp + "] " : ""}${s.text}`;
+    return `${ts} ${s.sp ? "[" + s.sp + (s.by === "ai" && (s.c || 0) < 60 ? "?" : "") + "] " : ""}${s.text}`;
   });
   return tailByBytes(lines.join("\n"), maxBytes);
 }
+// 狼人杀 transcript for Claude: line numbers, pauses, and where each speaker tag came from.
+function gameTxLines(m, maxBytes, ids = true) {
+  const lines = m.segs.map((s, i) => {
+    const head = `${ids ? "L" + i + " " : ""}[${fmtClock(s.t)}]`;
+    if (s.kind === "event") return `${head} — ${s.text} —`;
+    if (s.kind === "note") return `${head} (note) ${s.text}`;
+    const how = s.by === "cue" ? "heard" : s.by === "order" ? "order" : s.by === "ai" ? "ai" + (s.c || 50) : "sure";
+    return `${head} ${s.g >= 2 ? `(pause ${s.g}s) ` : ""}${s.sp ? `[${s.sp} ${how}]` : "[??]"} ${s.text}`;
+  });
+  return tailByBytes(lines.join("\n"), maxBytes);
+}
+const TAG_KEY = "Each spoken line is `[time] (pause Ns) [who how] text`. `who` is #seat or 法官 (the moderator). `how` says where the tag came from: `sure` = set by the user; `heard` = a clear cue on or just before the line (the moderator called that seat, or the speaker said 我是5号); `order` = only assumed: the same speaker carrying on, or the next seat in speaking order after the last one finished; `ai70` = AllKnowing's own earlier call and how sure it was; `[??]` = unknown. `(pause Ns)` is the silence before the line. Lines between dashes are phase changes; (note) lines are the user's notes.";
 function meetingContext(m, includePlan = true) {
   const p = m.prep;
   const lines = [
@@ -1322,16 +1352,21 @@ function promptLiveGame(m) {
     "YOUR PREVIOUS PICTURE (JSON; keep what is still true, correct what changed):",
     m.live ? headByBytes(JSON.stringify(m.live), 9000) : "none yet",
     "",
-    "GAME TRANSCRIPT (live speech-to-text: expect misheard words; [#n] marks the seat speaking and [法官] the moderator, when tagged; lines between dashes are phase changes and events; (note) lines are the user's notes; newest last):",
-    m.segs.length ? txLines(m, LIVE_TRANSCRIPT_BYTES) : "(nobody has spoken yet: give opening guidance from the setup)",
+    "GAME TRANSCRIPT. One microphone hears the whole table. This is live speech-to-text: expect misheard words, and it does not know who is speaking. Newest lines are last, and each line starts with its number (L12).",
+    TAG_KEY,
+    m.segs.length ? gameTxLines(m, LIVE_TRANSCRIPT_BYTES) : "(nobody has spoken yet: give opening guidance from the setup)",
     "",
+    state.lastSpeech && m.startedAt ? `SPEECH YOU WROTE FOR THE USER AT [${fmtClock((state.lastSpeech.at - m.startedAt) / 1000)}] (transcript lines after that time that match it are the user, #${g.seat}, reading it out):\n${headByBytes(stripMd(state.lastSpeech.text), 1500)}\n` : "",
     "Reply with only a JSON object in exactly this shape:",
     LIVE_GAME_SHAPE,
     "Rules:",
+    `- speakers: first work out who said each line. Give one entry for every line tagged [??] or \`order\` (nobody has checked those yet; if there are more than 40, do the newest 40), plus any \`heard\` or \`ai\` line you now believe is wrong. Leave \`sure\` lines alone. seat is 1-${g.players} for a player, 0 for the moderator, -1 if you really can't tell; sure is 0-100.`,
+    `  Evidence, strongest first: the moderator's calls and announcements; self-references (我是5号, 我这个预言家昨晚验了8号) and claims only one seat has made; how later speakers refer back (刚才5号说, 我上家, 前置位); the speaking order (one seat at a time from the seat the moderator started with, each speech usually ending with 过, seats that are out are skipped, same direction for the whole round); pauses (a few seconds of silence often means the next speaker); whether the content fits what that seat said before; and lines matching a speech you wrote for the user, which are the user (#${g.seat}) talking. The moderator runs the night (请闭眼, 请睁眼, 你要查验谁), announces deaths and votes, and calls speakers. If two speakers got run into one line, tag it with whoever says most of it.`,
+    "- turn: who is speaking at the end of the transcript (0 = the moderator or nobody, -1 = unknown), who speaks next, and whether seat numbers are going up or down this round.",
+    "- Base everything else on your corrected attribution, not on the raw tags. Where it is still unclear who said something, treat it as weak evidence and say so in the note.",
     `- players: one entry for every seat from 1 to ${g.players}. For the user's own seat use read "me". Work from what is said and logged: deaths, claims, counter-claims, check results, who defends or attacks whom, vote patterns, speaking-order logic and contradictions.`,
     "- confidence: 0-100 for how sure each read is.",
     "- guess and note: for every seat but the user's, the role you think they really have and the main reason in under 25 words: what they claimed, checked, defended, attacked or voted, and what doesn't add up.",
-    "- One microphone hears the whole table, so speaker tags come from the user tapping a seat or from hearing the moderator call a seat (请5号发言) or a player introduce themselves (我是5号). Some lines are untagged or tagged wrong. Work out who said what from self-references, the moderator's calls, the speaking order and the content. If it's unclear who said something, say so rather than treating it as hard evidence.",
     "- If the user is on the wolf team, help the wolves win: suggest believable speeches, never expose teammates, and say who to push. If the user is on the good side, find the wolves and protect key roles.",
     `- say_next: 1-2 options. Each line is a complete speech the user can read out, 4-8 sentences, in ${tableLangName(g.tableLang)}.`,
     "- vote: the seat to vote out now, or 0 if there is no vote yet or no good target.",
@@ -1364,7 +1399,8 @@ function promptSayGame(m) {
     `You are AllKnowing, an expert 狼人杀 coach. It is the user's turn to speak: seat #${g.seat}, ${g.role}.`,
     "", gameContext(m), "",
     "LATEST PICTURE (JSON):", m.live ? headByBytes(JSON.stringify({ phase: l.phase, situation: l.situation, players: l.players, events: l.events, vote: l.vote }), 6000) : "none yet",
-    "", "MOST RECENT PART OF THE GAME TRANSCRIPT (newest last):", m.segs.length ? txLines(m, 12000) : "(nothing yet)",
+    "", "MOST RECENT PART OF THE GAME TRANSCRIPT (newest last). One microphone hears the whole table, so some speaker tags are guesses.", TAG_KEY,
+    m.segs.length ? gameTxLines(m, 12000, false) : "(nothing yet)",
     "",
     `Write in ${tableLangName(g.tableLang)}, in exactly this format and nothing else:`,
     "**发言 Speech:** a complete speech to read out, 5-8 sentences: stance, who to suspect and trust with reasons, and who to vote.",
@@ -1469,7 +1505,10 @@ function normGameLive(d, m) {
   const players = Array.from({ length: n }, (_, i) => bySeat.get(i + 1) || { seat: i + 1, status: "unknown", claim: "", guess: "", read: "unsure", confidence: 0, note: "" });
   if (players[mySeat - 1]) players[mySeat - 1].read = "me";
   const vs = Number(obj(d.vote).seat);
+  const turn = obj(d.turn);
+  const seatOr = (x) => { const v = Number(x); return Number.isInteger(v) && v >= 0 && v <= n ? v : -1; };
   return {
+    turn: { speaking: seatOr(turn.speaking), next: seatOr(turn.next), direction: ["up", "down"].includes(turn.direction) ? turn.direction : "unknown" },
     phase: str(d.phase, 60), situation: str(d.situation, 1200), players, events: strArr(d.events, 30, 200),
     visual: normVisual(d.visual), say_next: normSay(d.say_next, 2),
     vote: { seat: vs >= 1 && vs <= n ? vs : 0, why: str(obj(d.vote).why, 400) },
@@ -1548,11 +1587,14 @@ async function runLiveUpdate(reason = "manual") {
   const ctl = new AbortController();
   state.aiCtl = ctl;
   const charsAtStart = txChars(m);
+  const linesAtStart = m.segs.length;
+  state.turnUpdateDue = false;
   try {
     const prompt = m.mode === "werewolf" ? promptLiveGame(m) : promptLiveMeeting(m);
     const data = await cap.sample.json(prompt, { modelTier: state.settings.liveTier === "quick" ? "quick" : "default", signal: ctl.signal, cache: false });
     if (state.cur !== m) return;
     m.live = m.mode === "werewolf" ? normGameLive(data, m) : normMeetingLive(data);
+    if (m.mode === "werewolf" && autoSeatOn()) applySpeakers(m, data, linesAtStart);
     m.liveAt = Date.now();
     if (m.mode === "meeting" && !m.title && m.live.title) { m.title = m.live.title; renderCurrentBox(); }
     state.lastAnalysisAt = Date.now();
@@ -1565,14 +1607,21 @@ async function runLiveUpdate(reason = "manual") {
   } finally {
     state.aiBusy = false;
     state.aiCtl = null;
+    if (state.turnUpdateDue && state.cur === m) setTimeout(() => maybeAutoUpdate(true, true), 0);
   }
 }
-function maybeAutoUpdate() {
+// Runs an update when enough has been said. In 狼人杀 a finished speech (turnEnd) is a good moment, so it can come sooner.
+function maybeAutoUpdate(turnEnd = false, heldBack = false) {
   const m = state.cur;
-  if (!m || !state.settings.auto || state.aiBusy || state.aiBlocked || !cap.sample) return;
+  if (!m || !state.settings.auto || state.aiBlocked || !cap.sample) return;
+  const ww = m.mode === "werewolf";
+  if (state.aiBusy) { if (turnEnd && ww) state.turnUpdateDue = true; return; }
   if (Date.now() < state.autoPausedUntil) return;
   const every = Math.max(30, Number(state.settings.autoEvery) || 60) * 1000;
-  if (txChars(m) - state.lastAnalyzedChars >= AUTO_MIN_CHARS && Date.now() - state.lastAnalysisAt >= every) runLiveUpdate("auto");
+  const fresh = txChars(m) - state.lastAnalyzedChars;
+  const since = Date.now() - state.lastAnalysisAt;
+  if (fresh >= (ww ? 150 : AUTO_MIN_CHARS) && since >= every) runLiveUpdate("auto");
+  else if (turnEnd && ww && fresh >= 40 && (heldBack || since >= 20000)) runLiveUpdate("auto");
 }
 async function askSayNow() {
   const m = state.cur;
@@ -1587,6 +1636,7 @@ async function askSayNow() {
     const prompt = m.mode === "werewolf" ? promptSayGame(m) : promptSayMeeting(m);
     const res = await cap.sample(prompt, { modelTier: "quick", signal: ctl.signal, cache: false, onText: ({ text }) => { if (state.sayCtl === ctl) { state.sayNow.text = text; renderSayNow(); } } });
     if (state.sayCtl === ctl) state.sayNow.text = res.text;
+    if (state.cur === m && m.mode === "werewolf" && res.text) state.lastSpeech = { text: res.text, at: Date.now() };
   } catch (e) {
     if (state.sayCtl === ctl && e && e.text) state.sayNow.text = e.text;
     aiErr(e, "say");
@@ -1666,7 +1716,15 @@ function bindDictation() {
   const d = cap.dict;
   if (!d) return;
   try {
-    d.onPartial(({ text }) => { state.partial = text || ""; renderPartial(); });
+    d.onPartial(({ text }) => {
+      if (text) {
+        const now = Date.now();
+        if (!state.uttOpen) { state.uttOpen = true; state.uttGap = state.lastHeardAt ? (now - state.lastHeardAt) / 1000 : 0; }
+        state.lastHeardAt = now;
+      }
+      state.partial = text || "";
+      renderPartial();
+    });
     d.onFinal(({ text }) => onFinalText(text));
     d.onState(({ state: s, reason }) => onDictState(s, reason));
   } catch (e) { console.warn(e); }
@@ -1689,7 +1747,11 @@ function onDictState(s, reason) {
     state.openSegId = null;
     if (reason && reason !== "stopped") state.listenNote = LISTEN_MSG[reason] || "Listening stopped. Tap Resume to try again.";
     flushSaves();
-  } else if (s === "listening") state.listenNote = "";
+  } else if (s === "listening") {
+    state.listenNote = "";
+    state.lastHeardAt = 0;
+    state.uttOpen = false;
+  }
   renderListenUI();
   renderCurrentBox();
 }
@@ -1698,7 +1760,7 @@ function startListening() {
   const m = state.cur;
   if (!m) return;
   if (!d) { toast("Dictation needs Chrome or Edge on a computer, or the Claude desktop app. You can still type below.", "warn", 7000); return; }
-  const lang = state.settings.dictLang;
+  const lang = listenLang(m);
   let p;
   try { p = lang ? d.start({ language: lang }) : d.start(); } catch (e) { p = Promise.reject(e); }
   const first = !m.startedAt;
@@ -1710,8 +1772,20 @@ function startListening() {
     const code = (e && e.code) || "upstream_error";
     if (code === "stopped") return;
     state.listenNote = LISTEN_MSG[code] || (code === "no_gesture" ? "Tap Start again." : `Couldn't start listening (${code}).`);
+    if (code === "unavailable" && lang && !state.settings.dictLang) {
+      // The language taken from the game or meeting setup isn't served here: fall back next time.
+      state.skipSetupLang = true;
+      state.listenNote = "Listening in this table's language isn't available here. Tap Start again to listen in your browser's language, or pick a language from the list.";
+    }
     renderListenUI();
   });
+}
+// The listening language: the one picked in the list, or on Auto the language set for this game or meeting.
+function listenLang(m) {
+  if (state.settings.dictLang) return state.settings.dictLang;
+  if (state.skipSetupLang) return "";
+  const code = m.mode === "werewolf" ? m.game.tableLang : m.prep.lang;
+  return { zh: "zh", yue: "zh-HK", en: "en" }[code] || "";
 }
 async function stopListening() {
   try { if (cap.dict) await cap.dict.stop(); } catch { /* ignore */ }
@@ -1722,115 +1796,372 @@ function onFinalText(text) {
   if (!m || !text) return;
   const now = Date.now();
   if (!m.startedAt) { m.startedAt = now; m.status = "live"; state.dirtyMeeting = true; }
-  const cue = m.mode === "werewolf" && state.settings.autoSeat !== false ? seatCue(text, m) : null;
-  if (cue && cue.self && state.speaker !== "#" + cue.self) setSpeaker("#" + cue.self, true);
-  const sp = cue && cue.judge ? "法官" : state.speaker || "";
-  const t = (now - m.startedAt) / 1000;
-  const last = m.segs[m.segs.length - 1];
-  let seg = last && last.id === state.openSegId ? last : null;
-  if (seg && seg.kind === "speech" && seg.sp === sp && now - state.lastFinalAt < 15000 && seg.text.length < 700) {
-    seg.text += text;
-    markSegDirty(m.segs.length - 1);
+  // Silence before this phrase, in seconds. The first live guess of a phrase marks where it started.
+  const gap = state.uttOpen ? state.uttGap : state.lastHeardAt ? (now - state.lastHeardAt) / 1000 : 0;
+  state.uttOpen = false;
+  state.lastHeardAt = now;
+  if (m.mode === "werewolf") {
+    const pieces = autoSeatOn() ? splitHeard(text, m, state.tr) : [text];
+    pieces.forEach((piece, i) => addHeard(m, piece, i === 0 ? gap : 0, now));
   } else {
-    seg = { id: uid(), t, sp, text: text.replace(/^\s+/, ""), kind: "speech" };
-    m.segs.push(seg);
-    state.openSegId = seg.id;
+    const last = m.segs[m.segs.length - 1];
+    let seg = last && last.id === state.openSegId ? last : null;
+    if (seg && seg.kind === "speech" && seg.sp === state.speaker && now - state.lastFinalAt < 15000 && seg.text.length < 700) {
+      seg.text += text;
+    } else {
+      seg = { id: uid(), t: (now - m.startedAt) / 1000, sp: state.speaker || "", text: text.replace(/^\s+/, ""), kind: "speech" };
+      m.segs.push(seg);
+      state.openSegId = seg.id;
+    }
     markSegDirty(m.segs.length - 1);
+    renderSegUpdate(seg);
   }
   state.lastFinalAt = now;
   state.partial = "";
-  renderSegUpdate(seg);
   renderPartial();
-  if (cue) applySeatCue(cue, m);
   maybeAutoUpdate();
 }
-/* 狼人杀: one microphone hears the whole table, so the seat tag follows what's said:
-   the moderator calling a seat (请5号发言, 从5号开始) or a player saying 我是5号. */
-const SEAT_N = "(\\d{1,2}|[一二两三四五六七八九十]{1,3})";
-const SEAT_CALL_RES = [
-  new RegExp(`(?:请|轮到|有请)\\s*${SEAT_N}\\s*号(?:玩家)?\\s*(?:开始)?\\s*发言`),
-  new RegExp(`${SEAT_N}\\s*号(?:玩家)?\\s*(?:请\\s*)?开始\\s*发言`),
-  new RegExp(`${SEAT_N}\\s*号(?:玩家)?\\s*请\\s*发言`),
-  new RegExp(`从\\s*${SEAT_N}\\s*号(?:玩家)?\\s*开始`),
-  /(?:seat|number|player)\s*(\d{1,2})\s*,?\s*(?:please\s+)?(?:speak|go ahead|your turn)/i,
-];
-const SEAT_SELF_RES = [
-  new RegExp(`^[\\s，,。.!！?？…嗯呃啊哦好的那个]{0,6}(?:我是|我)\\s*${SEAT_N}\\s*号(?:玩家)?(?!的)`),
-  /^\W{0,3}(?:I'm|I am)\s+(?:seat|number|player)\s*(\d{1,2})\b/i,
-];
-const JUDGE_RE = /天黑请闭眼|天亮了|请睁眼|请闭眼|平安夜|开始投票|请投票|现在投票|请上警|竞选警长|昨晚.{0,6}(?:死亡|死了|出局)/;
-const PHASE_RES = [[/天黑请闭眼/, "天黑 · Night"], [/天亮了|天亮请睁眼/, "天亮 · Day"], [/开始投票|请投票|现在投票/, "投票 · Vote"]];
+
+/* ---------- 狼人杀: who is speaking ----------
+   One microphone hears the whole table, and speech-to-text gives words, not voices.
+   So AllKnowing works out the speaker itself, in two layers:
+   1. At once, from what's heard: the moderator calling a seat (请5号发言), a player saying
+      我是5号, a speech ending with 过 (the next seat in order is up), and pauses.
+   2. On every update, Claude re-reads the lines and corrects who said what from the content,
+      the speaking order and how others refer back (applySpeakers).
+   Each spoken line keeps how its tag was set in `by`: "cue" (heard), "order" (assumed from
+   the order), "ai" (Claude, with confidence `c`) or "tap" (the user). `g` is the pause before it. */
+const autoSeatOn = () => state.settings.autoSeat !== false;
+const newTracker = (dir = 1) => ({ seat: 0, by: "", ended: false, fresh: false, dir: dir < 0 ? -1 : 1 });
+const PAUSE_SPLIT = 1.5;
+const PHASE_NIGHT = "天黑 · Night";
+const PHASE_DAY = "天亮 · Day";
+const PHASE_VOTE = "投票 · Vote";
+const PHASE_LABELS = new Set([PHASE_NIGHT, PHASE_DAY, PHASE_VOTE]);
+// Cue matching works on Simplified characters; this covers the Traditional ones the patterns use.
+const T2S = { 請: "请", 號: "号", 發: "发", 過: "过", 閉: "闭", 睜: "睁", 開: "开", 從: "从", 輪: "轮", 遺: "遗", 順: "顺", 時: "时", 針: "针", 麥: "麦", 結: "结", 畢: "毕", 樣: "样", 現: "现", 進: "进", 選: "选", 競: "竞", 長: "长", 舉: "举", 這: "这", 說: "说", 講: "讲", 個: "个", 邊: "边", 裡: "里", 兩: "两", 殺: "杀", 驗: "验", 護: "护", 認: "认", 戲: "戏", 東: "东", 麼: "么", 來: "来", 續: "续", 後: "后", 當: "当", 獲: "获", 勝: "胜", 陣: "阵", 營: "营", 傷: "伤", 遊: "游", 確: "确", 夥: "伙", 險: "险", 嗎: "吗", 啟: "启", 繼: "继", 討: "讨", 論: "论" };
+const simp = (s) => String(s || "").replace(/[㐀-鿿]/g, (ch) => T2S[ch] || ch);
 const CN_DIGITS = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
 function seatNumber(raw) {
   const s = String(raw || "");
   if (/^\d+$/.test(s)) return Number(s);
-  const m = s.match(/^([一二两三四五六七八九])?十([一二三四五六七八九])?$/);
-  if (m) return (m[1] ? CN_DIGITS[m[1]] : 1) * 10 + (m[2] ? CN_DIGITS[m[2]] : 0);
+  const mt = s.match(/^([一二两三四五六七八九])?十([一二三四五六七八九])?$/);
+  if (mt) return (mt[1] ? CN_DIGITS[mt[1]] : 1) * 10 + (mt[2] ? CN_DIGITS[mt[2]] : 0);
   return CN_DIGITS[s] || 0;
 }
-function seatCue(text, m) {
+const SEAT_N = "(\\d{1,2}|[一二两三四五六七八九十]{1,3})";
+const HAO = "\\s*号\\s*(?:玩家|位)?";
+const FILL = "[\\s，,。.!！?？…、嗯呃啊哦噢好的那个]{0,8}";
+const STOP = "(?=[，,。.！!?？、；;\\s]|$)";
+// The moderator giving a seat the floor: 请5号发言, 轮到5号, 5号玩家请发言, 从5号开始发言, 请5号发表遗言
+const CALL_RES = [
+  new RegExp(`(?:请|有请|轮到|下面|接下来|首先|然后|现在|下一位|下一个)[是由请到，,：:\\s]{0,3}${SEAT_N}${HAO}\\s*(?:开始|继续|上警|警上)?\\s*(?:发言|讲话|发表遗言|留遗言|说遗言|遗言)`),
+  new RegExp(`(?:下一位|下一个)[是，,：:\\s]{0,3}${SEAT_N}${HAO}`),
+  new RegExp(`${SEAT_N}${HAO}\\s*(?:请|可以)\\s*(?:开始)?\\s*(?:发言|发表遗言|留遗言)`),
+  new RegExp(`${SEAT_N}${HAO}\\s*开始\\s*发言(?!的)`),
+  new RegExp(`${SEAT_N}${HAO}\\s*(?:被放逐|被票出|被投出|出局|死亡|倒牌).{0,8}遗言`),
+  new RegExp(`(?:从|由)\\s*${SEAT_N}${HAO}\\s*(?:这里|这边)?\\s*开始(?:(?:顺序|逆序|顺时针|逆时针|依次|轮流)?\\s*发言|\\s*[，,。.!！]?\\s*(?:顺|逆|$))`),
+  /(?:seat|number|player)\s*(\d{1,2})\s*,?\s*(?:please\s+)?(?:speak|go ahead|your turn|you're up)/i,
+];
+// A player opening their own speech: 我是5号, 5号发言
+const SELF_RES = [
+  new RegExp(`^${FILL}(?:我是|这里是|这边是)\\s*${SEAT_N}${HAO}(?=[，,。.！!?？、；;\\s]|$|我)`),
+  new RegExp(`^${FILL}(?:我\\s*)?${SEAT_N}${HAO}\\s*发言${STOP}`),
+  /^\W{0,3}(?:I'm|I am|this is)\s+(?:seat|number|player)\s*(\d{1,2})\b/i,
+];
+const VOTE_SRC = "(?:开始|现在|进行)投票|投票开始|请.{0,4}投票(?!给)";
+// Things only the moderator says
+const JUDGE_STRONG = new RegExp(`天黑请闭眼|请闭眼|请睁眼|天亮了${STOP}|请.{0,8}举手|${VOTE_SRC}|游戏开始|游戏结束|你要(?:查验|毒|救|守护|杀)|请确认(?:身份|同伴)`);
+// Things the moderator says, but a player might repeat mid-speech: only counted when nobody has the floor
+const JUDGE_WEAK = /昨[晚夜].{0,10}(?:死亡|死了|倒牌|出局|被杀)|昨[晚夜]是?平安夜|竞选警长|警长竞选|(?:好人|狼人)(?:阵营)?(?:获胜|胜利)|[0-9一二两三四五六七八九十]{1,3}\s*号(?:玩家)?\s*(?:被放逐|被票出|被投出|出局|死亡|倒牌)/;
+const NEXT_RE = new RegExp(`^${FILL}(?:下一位|下一个|下面一位|next)(?:玩家| player)?${STOP}`, "i");
+const PHASE_RES = [[/天黑请闭眼/, PHASE_NIGHT], [/天亮了|天亮请睁眼/, PHASE_DAY], [new RegExp(VOTE_SRC), PHASE_VOTE]];
+// The end of a speech: 过, 我过了, 过麦, 发言完毕, pass
+const END_RES = [
+  /(?:^|[，,。.!！?？;；、\s])[好那我就先了嗯呃]{0,4}过(?:了|麦|吧|啊|哈)?[。.!！~～\s]*$/,
+  /(?:我就?先?过了?|过麦)[。.!！~～\s]*$/,
+  /(?:发言完毕|发言结束|发言完了|[说讲]完了|就这样|就这些|就这么多|完毕)[吧了啊]?[。.!！~～\s]*$/,
+  /(?:^|[\s.,!?])(?:pass|i pass|that's all|that's it|i'm done)[.!\s]*$/i,
+];
+const endsTurn = (text) => { const t = simp(text).trim(); return END_RES.some((re) => re.test(t)); };
+const NO_CUE = { call: 0, self: 0, judge: false, next: false, phase: "", dir: 0, end: false, any: false };
+function seatCue(text, m, tr) {
+  const t = simp(text).trim();
   const n = m.game.players;
-  const valid = (x) => (x >= 1 && x <= n ? x : 0);
-  const cue = { call: 0, self: 0, judge: false, phase: "", dir: 0 };
-  for (const re of SEAT_CALL_RES) {
-    const mt = text.match(re);
-    cue.call = mt ? valid(seatNumber(mt[1])) : 0;
-    if (cue.call) break;
+  const seatIn = (mt) => { const x = mt ? seatNumber(mt[1]) : 0; return x >= 1 && x <= n ? x : 0; };
+  const cue = { ...NO_CUE };
+  const short = t.length <= 40;
+  if (short) {
+    for (const re of CALL_RES) {
+      cue.call = seatIn(t.match(re));
+      if (cue.call) break;
+    }
   }
-  if (cue.call) {
-    cue.judge = true;
-    if (/逆序|倒序/.test(text)) cue.dir = -1;
-    else if (/顺序|正序/.test(text)) cue.dir = 1;
-  } else {
-    for (const re of SEAT_SELF_RES) {
-      const mt = text.match(re);
-      cue.self = mt ? valid(seatNumber(mt[1])) : 0;
+  if (!cue.call) {
+    for (const re of SELF_RES) {
+      cue.self = seatIn(t.match(re));
       if (cue.self) break;
     }
-    if (!cue.self && JUDGE_RE.test(text)) cue.judge = true;
   }
-  for (const [re, label] of PHASE_RES) {
-    if (re.test(text)) { cue.phase = label; break; }
+  const hasFloor = !!tr && tr.seat > 0 && !tr.ended;
+  if (cue.call) cue.judge = true;
+  else if (!cue.self) {
+    if (JUDGE_STRONG.test(t) || (!hasFloor && JUDGE_WEAK.test(t))) cue.judge = true;
+    else if (short && NEXT_RE.test(t)) { cue.judge = true; cue.next = true; }
   }
-  return cue.call || cue.self || cue.judge || cue.phase ? cue : null;
+  if (cue.judge) {
+    for (const [re, label] of PHASE_RES) {
+      if (re.test(t)) { cue.phase = label; break; }
+    }
+    if (/逆序|倒序|逆时针/.test(t)) cue.dir = -1;
+    else if (/顺序|正序|顺时针/.test(t)) cue.dir = 1;
+  } else cue.end = END_RES.some((re) => re.test(t));
+  cue.any = !!(cue.call || cue.self || cue.judge);
+  return cue;
 }
-function applySeatCue(cue, m) {
-  if (cue.dir) state.seatDir = cue.dir;
-  if (cue.phase) {
-    const lastEvent = [...m.segs].reverse().find((x) => x.kind === "event");
-    const recent = lastEvent && lastEvent.text === cue.phase && (Date.now() - m.startedAt) / 1000 - lastEvent.t < 300;
-    if (!recent) addSeg("event", cue.phase);
-  }
-  if (cue.call && state.speaker !== "#" + cue.call) {
-    setSpeaker("#" + cue.call, true);
-    if (cue.call === Number(m.game.seat)) {
-      toast("Your turn. Writing your speech…", "good", 5000);
-      if (!state.sayCtl) askSayNow();
-    } else toast(`Now speaking: #${cue.call}`);
-  }
+function outSeats(m) {
+  const out = new Set(m.game.out);
+  for (const p of (m.live && m.live.players) || []) if (p.status === "out") out.add(p.seat);
+  return out;
 }
-function setSpeaker(key, quiet = false) {
-  state.speaker = key;
-  state.openSegId = null;
-  const n = Number(String(key).replace("#", ""));
-  if (n) state.lastSeat = n;
+// The next seat in speaking order, skipping seats that are out.
+function nextSeat(m, seat, dir) {
+  const n = m.game.players;
+  const out = outSeats(m);
+  let cur = seat;
+  for (let i = 0; i < n; i++) {
+    cur = ((cur - 1 + (dir < 0 ? -1 : 1) + n) % n) + 1;
+    if (!out.has(cur)) return cur;
+  }
+  return seat;
+}
+// One phrase from the table: who said it, and where the floor is afterwards. Pure, so it can be re-run.
+function seatStep(tr0, text, m) {
+  const tr = { ...tr0 };
+  const cue = seatCue(text, m, tr0);
+  const prev = tr0.seat > 0 ? tr0.seat : 0;
+  let sp = "";
+  let by = "";
+  let started = 0;
+  const learnDir = (x) => {
+    if (!prev || x === prev || m.game.players < 3) return;
+    if (x === nextSeat(m, prev, 1)) tr.dir = 1;
+    else if (x === nextSeat(m, prev, -1)) tr.dir = -1;
+  };
+  if (cue.call) {
+    sp = "法官";
+    by = "cue";
+    if (cue.call !== prev || tr0.ended) started = cue.call;
+    learnDir(cue.call);
+    Object.assign(tr, { seat: cue.call, by: "cue", ended: false, fresh: true });
+  } else if (cue.self) {
+    sp = "#" + cue.self;
+    by = "cue";
+    if (cue.self !== prev || tr0.ended) started = cue.self;
+    learnDir(cue.self);
+    Object.assign(tr, { seat: cue.self, by: "cue", ended: false, fresh: false });
+  } else if (cue.judge) {
+    sp = "法官";
+    by = "cue";
+    if (cue.next) { if (tr.seat > 0) tr.ended = true; }
+    else if (cue.phase) Object.assign(tr, { seat: 0, by: "", ended: false, fresh: false });
+  } else {
+    if (tr.seat > 0 && tr.ended) {
+      Object.assign(tr, { seat: nextSeat(m, tr.seat, tr.dir), by: "order", ended: false, fresh: false });
+      started = tr.seat;
+    }
+    if (tr.seat > 0) {
+      sp = "#" + tr.seat;
+      by = tr.fresh ? "cue" : tr.by === "tap" ? "tap" : "order";
+      tr.fresh = false;
+    } else if (tr.seat === -1) {
+      sp = "法官";
+      by = "tap";
+    }
+  }
+  if (cue.dir) tr.dir = cue.dir;
+  if (cue.end && sp[0] === "#") tr.ended = true;
+  return { sp, by, tr, cue, started };
+}
+// Speech-to-text can run two speakers into one phrase. Split it where a sentence is a cue or follows the end of a speech.
+function splitHeard(text, m, tr) {
+  const sents = text.match(/[^。！？!?\n]+[。！？!?\n]*/g);
+  if (!sents || sents.length < 2) return [text];
+  const out = [];
+  let buf = "";
+  let closed = false;
+  for (const s of sents) {
+    const c = seatCue(s, m, tr);
+    if (buf && (closed || c.any)) { out.push(buf); buf = ""; }
+    buf += s;
+    closed = c.end || !!c.call || c.judge;
+  }
+  if (buf) out.push(buf);
+  return out;
+}
+function addHeard(m, text, gap, now) {
+  if (!text.trim()) return;
+  const before = state.tr;
+  let r;
+  if (autoSeatOn()) r = seatStep(before, text, m);
+  else {
+    const sp = before.seat > 0 ? "#" + before.seat : before.seat === -1 ? "法官" : "";
+    r = { sp, by: sp ? "tap" : "", tr: before, cue: NO_CUE, started: 0 };
+  }
+  state.tr = r.tr;
+  const c = r.cue;
+  const last = m.segs[m.segs.length - 1];
+  const open = last && last.id === state.openSegId && last.kind === "speech" ? last : null;
+  const fresh = !open || state.closeSeg || c.call || c.self || c.next || open.sp !== r.sp || (open.by || "") !== r.by || gap >= PAUSE_SPLIT || open.text.length >= 300;
+  let seg = open;
+  if (fresh) {
+    seg = { id: uid(), t: (now - m.startedAt) / 1000, sp: r.sp, text: text.replace(/^\s+/, ""), kind: "speech" };
+    if (r.by) seg.by = r.by;
+    if (gap >= 1) seg.g = Math.min(99, Math.round(gap));
+    m.segs.push(seg);
+    state.openSegId = seg.id;
+  } else seg.text += text;
+  markSegDirty(m.segs.length - 1);
+  state.closeSeg = !!(c.end || c.call || c.next);
+  renderSegUpdate(seg);
+  if (c.phase) logPhase(m, c.phase);
+  if (r.tr.seat !== before.seat || r.tr.ended !== before.ended) renderChips();
+  const me = Number(m.game.seat);
+  if (r.started === me) myTurn();
+  else if (c.end && r.sp[0] === "#" && nextSeat(m, r.tr.seat, r.tr.dir) === me) myTurn();
+  else if (r.started && nextSeat(m, r.started, r.tr.dir) === me) toast(`You're up after #${r.started}.`);
+  if (c.end || r.started || c.phase) maybeAutoUpdate(true);
+}
+function logPhase(m, label) {
+  const lastEvent = [...m.segs].reverse().find((x) => x.kind === "event" && PHASE_LABELS.has(x.text));
+  const recent = lastEvent && lastEvent.text === label && (Date.now() - m.startedAt) / 1000 - lastEvent.t < 300;
+  if (!recent) addSeg("event", label);
+}
+// The floor has reached the user's seat: have a speech ready.
+function myTurn() {
+  const now = Date.now();
+  if (now - state.myTurnAt < 90000) return;
+  state.myTurnAt = now;
+  if (state.sayCtl || (state.sayNow && now - state.sayNow.at < 45000) || !cap.sample || state.aiBlocked) { toast("Your turn.", "good", 5000); return; }
+  toast("Your turn. Writing your speech…", "good", 5000);
+  askSayNow();
+}
+// Where the floor is after the first `seen` lines, using Claude's view (`ai`) where the lines don't settle it.
+function trackerAt(m, seen, ai) {
+  const valid = (x) => Number.isInteger(x) && x >= 1 && x <= m.game.players;
+  const base = newTracker(ai.dir || (state.tr && state.tr.dir) || 1);
+  const aiSeat = valid(ai.speaking) ? ai.speaking : 0;
+  let phaseAfter = false;
+  let k = Math.min(seen, m.segs.length) - 1;
+  for (; k >= 0; k--) {
+    const x = m.segs[k];
+    if (x.kind === "speech") break;
+    if (x.kind === "event" && PHASE_LABELS.has(x.text)) phaseAfter = true;
+  }
+  const s = k >= 0 ? m.segs[k] : null;
+  if (!s || phaseAfter) return aiSeat ? { ...base, seat: aiSeat, by: "ai" } : base;
+  const seat = s.sp && s.sp[0] === "#" ? Number(s.sp.slice(1)) : 0;
+  if (seat) {
+    if (s.by !== "order" || !aiSeat) return { ...base, seat, by: s.by === "tap" || !s.by ? "tap" : "ai", ended: endsTurn(s.text) };
+    return { ...base, seat: aiSeat, by: "ai", ended: aiSeat === seat && endsTurn(s.text) };
+  }
+  if (s.sp === "法官") {
+    const cue = seatCue(s.text, m, base);
+    if (cue.call) return { ...base, seat: cue.call, by: "cue", fresh: true };
+    if (s.by === "tap" || !s.by) return { ...base, seat: -1, by: "tap" };
+  }
+  if (aiSeat) return { ...base, seat: aiSeat, by: "ai" };
+  if (valid(ai.next)) return { ...base, seat: ai.next, by: "ai" };
+  return base;
+}
+const userSet = (s) => s.by === "tap" || (!!s.sp && !s.by);
+// Claude's answer to "who said each line": apply it, then re-tag what was heard while it was thinking.
+function applySpeakers(m, data, seen) {
+  const n = m.game.players;
+  const changed = new Set();
+  for (const e of arr(obj(data).speakers, 200)) {
+    const o = obj(e);
+    const i = Number(o.line);
+    const s = Number.isInteger(i) && i >= 0 && i < seen ? m.segs[i] : null;
+    if (!s || s.kind !== "speech" || userSet(s)) continue;
+    const seat = Number(o.seat);
+    const sp = seat === 0 ? "法官" : Number.isInteger(seat) && seat >= 1 && seat <= n ? "#" + seat : "";
+    if (!sp) continue;
+    const sure = clampNum(o.sure, 0, 100);
+    if (sp !== s.sp) {
+      const need = s.by === "cue" ? 80 : s.by === "order" ? 55 : s.by === "ai" ? 50 : 30;
+      if (sure < need) continue;
+      s.sp = sp;
+    } else if (s.by === "cue") continue;
+    s.by = "ai";
+    s.c = sure;
+    changed.add(i);
+  }
+  const t = obj(obj(data).turn);
+  const before = state.tr;
+  let tr = trackerAt(m, seen, { speaking: Number(t.speaking), next: Number(t.next), dir: t.direction === "down" ? -1 : t.direction === "up" ? 1 : 0 });
+  for (let j = Math.min(seen, m.segs.length); j < m.segs.length; j++) {
+    const s = m.segs[j];
+    if (s.kind === "event" && PHASE_LABELS.has(s.text)) tr = newTracker(tr.dir);
+    if (s.kind !== "speech") continue;
+    if (userSet(s)) {
+      const seat = s.sp[0] === "#" ? Number(s.sp.slice(1)) : s.sp === "法官" ? -1 : 0;
+      tr = { ...newTracker(tr.dir), seat, by: "tap", ended: seat > 0 && endsTurn(s.text) };
+      continue;
+    }
+    const r = seatStep(tr, s.text, m);
+    tr = r.tr;
+    if (s.sp !== r.sp || (s.by || "") !== r.by) {
+      s.sp = r.sp;
+      s.by = r.by;
+      s.c = 0;
+      changed.add(j);
+    }
+  }
+  state.tr = tr;
+  if (changed.size) {
+    markSegDirty(Math.min(...changed));
+    for (const i of changed) refreshSegEl(m.segs[i]);
+  }
   renderChips();
-  if (!quiet) toast(key ? `Now speaking: ${key}` : "Speaker cleared.");
+  const me = Number(m.game.seat);
+  const mine = (x) => x.seat === me && !x.ended;
+  if (mine(tr) && !mine(before)) myTurn();
 }
-// Next or previous seat in speaking order, skipping seats marked out.
+function refreshSegEl(s) {
+  const old = state.segEls.get(s.id);
+  if (!old) return;
+  const el = segEl(s);
+  old.replaceWith(el);
+  state.segEls.set(s.id, el);
+}
+// Who has the floor right now, as a chip key ("#5", "法官" or "").
+function speakingKey(m) {
+  if (m.mode !== "werewolf") return state.speaker;
+  const tr = state.tr;
+  if (tr.seat === -1) return "法官";
+  if (tr.seat > 0) return "#" + (tr.ended ? nextSeat(m, tr.seat, tr.dir) : tr.seat);
+  return "";
+}
+function setSpeaker(key) {
+  const m = state.cur;
+  state.openSegId = null;
+  if (m && m.mode === "werewolf") {
+    const seat = key === "法官" ? -1 : Number(String(key).replace("#", "")) || 0;
+    state.tr = { ...newTracker(state.tr.dir), seat, by: seat ? "tap" : "" };
+  } else state.speaker = key;
+  renderChips();
+}
+// Next or previous seat in speaking order, skipping seats that are out.
 function stepSpeaker(step) {
   const m = state.cur;
   if (!m || m.mode !== "werewolf") return;
-  const n = m.game.players;
-  const out = new Set(m.game.out);
-  const dir = step * (state.seatDir || 1);
-  let cur = Number(String(state.speaker).replace("#", "")) || state.lastSeat || 0;
-  if (!cur) cur = dir > 0 ? 0 : n + 1;
-  for (let i = 0; i < n; i++) {
-    cur = ((cur - 1 + dir + n) % n) + 1;
-    if (!out.has(cur)) break;
-  }
-  setSpeaker("#" + cur, true);
+  const tr = state.tr;
+  const dir = step * tr.dir;
+  const from = tr.seat > 0 ? tr.seat : dir > 0 ? m.game.players : 1;
+  state.openSegId = null;
+  state.tr = { ...newTracker(tr.dir), seat: nextSeat(m, from, dir), by: "tap" };
+  renderChips();
 }
 function addSeg(kind, text, sp = "") {
   const m = state.cur;
@@ -1868,19 +2199,35 @@ function renderChips() {
   const box = $("#chips");
   const m = state.cur;
   if (!box || !m) return;
-  box.replaceChildren(h("span", { class: "chips-label" }, m.mode === "werewolf" ? (state.markOut ? "Tap a seat to mark it out (or back in)" : "Who's speaking? Tap the seat") : "Who's speaking? Tap to tag (optional)"));
+  const ww = m.mode === "werewolf";
+  const label = !ww ? "Who's speaking? Tap to tag (optional)" : state.markOut ? "Tap a seat to mark it out (or back in)" : autoSeatOn() ? "Speaking now. AllKnowing follows the table by itself; tap a seat only to correct it." : "Who's speaking? Tap the seat";
+  const current = speakingKey(m);
+  box.replaceChildren(h("span", { class: "chips-label" }, label));
   for (const o of speakerOptions(m)) {
     box.append(h("button", {
       type: "button",
       class: "chip" + (o.me ? " me" : "") + (o.out ? " out" : ""),
-      "aria-pressed": String(state.speaker === o.key && !state.markOut),
+      "aria-pressed": String(current === o.key && !state.markOut),
       title: o.me ? "You" : "",
       onclick: () => {
         if (m.mode === "werewolf" && state.markOut && o.seat) { toggleOut(o.seat); return; }
-        setSpeaker(state.speaker === o.key ? "" : o.key, true);
+        setSpeaker(current === o.key ? "" : o.key);
       },
-    }, o.label + (o.me && m.mode === "werewolf" ? " (me)" : "")));
+    }, o.label + (o.me && ww ? " (me)" : "")));
   }
+  markSpeaking();
+}
+// A dot on the seat card of whoever has the floor.
+function markSpeaking() {
+  const m = state.cur;
+  if (!m || m.mode !== "werewolf") return;
+  const key = state.tr.seat > 0 && !state.tr.ended ? String(state.tr.seat) : "";
+  for (const el of $$("#boardBody .seat")) el.classList.toggle("speaking", el.dataset.seat === key);
+}
+function phaseButton(label) {
+  addSeg("event", label);
+  state.tr = newTracker(state.tr.dir);
+  renderChips();
 }
 function toggleOut(seat) {
   const g = state.cur.game;
@@ -1910,14 +2257,13 @@ function renderLive() {
     h("button", { type: "button", class: "btn", onclick: endMeeting }, ww ? "End game" : "End meeting"));
 
   const tools = ww ? h("div", { class: "row", style: "margin-bottom:8px" },
-    h("button", { type: "button", class: "btn small", onclick: () => addSeg("event", "天黑 · Night") }, "Night"),
-    h("button", { type: "button", class: "btn small", onclick: () => addSeg("event", "天亮 · Day") }, "Day"),
-    h("button", { type: "button", class: "btn small", onclick: () => addSeg("event", "投票 · Vote") }, "Vote"),
+    h("button", { type: "button", class: "btn small", onclick: () => phaseButton(PHASE_NIGHT) }, "Night"),
+    h("button", { type: "button", class: "btn small", onclick: () => phaseButton(PHASE_DAY) }, "Day"),
+    h("button", { type: "button", class: "btn small", onclick: () => phaseButton(PHASE_VOTE) }, "Vote"),
     h("button", { type: "button", class: "btn small", id: "markOutBtn", "aria-pressed": String(state.markOut), onclick: (e) => { state.markOut = !state.markOut; e.currentTarget.setAttribute("aria-pressed", String(state.markOut)); renderChips(); } }, "Mark seats out"),
     h("span", { class: "spacer" }),
-    h("button", { type: "button", class: "btn small", title: "Previous seat (← key)", "aria-label": "Previous seat", onclick: () => stepSpeaker(-1) }, "◂"),
-    h("button", { type: "button", class: "btn small", id: "nextSeatBtn", title: "Next seat in speaking order (→ key)", onclick: () => stepSpeaker(1) }, "Next seat ▸"),
-    h("button", { type: "button", class: "btn small", id: "autoSeatBtn", "aria-pressed": String(state.settings.autoSeat !== false), title: "Switch the seat when the moderator calls one (请5号发言) or a player says 我是5号", onclick: (e) => { state.settings.autoSeat = state.settings.autoSeat === false; e.currentTarget.setAttribute("aria-pressed", String(state.settings.autoSeat)); saveSettingsSoon(); toast(state.settings.autoSeat ? "Seat follows what's said." : "Seat changes only when you tap."); } }, "Auto seat")) : null;
+    h("button", { type: "button", class: "btn small", id: "nextSeatBtn", title: "Move to the next seat in speaking order, if AllKnowing has it wrong (→ key; ← goes back)", onclick: () => stepSpeaker(1) }, "Next seat ▸"),
+    h("button", { type: "button", class: "btn small", id: "autoSeatBtn", "aria-pressed": String(autoSeatOn()), title: "AllKnowing works out who is speaking from the moderator's calls, what people say, the speaking order and pauses", onclick: (e) => { state.settings.autoSeat = !autoSeatOn(); e.currentTarget.setAttribute("aria-pressed", String(state.settings.autoSeat)); saveSettingsSoon(); renderChips(); toast(state.settings.autoSeat ? "AllKnowing works out who's speaking." : "The speaker changes only when you tap a seat."); } }, "Auto speakers")) : null;
 
   const composerInput = h("input", { id: "composerText", placeholder: ww ? "Type what was said, or a note (e.g. 5号跳预言家 查杀8号)" : "Type what was said, or a note", "aria-label": "Add a line" });
   let autoTimer = null;
@@ -1925,7 +2271,8 @@ function renderLive() {
     const text = composerInput.value.trim();
     if (!text) return;
     const kind = $("#composerKind").value;
-    addSeg(kind, text, kind === "speech" ? state.speaker : "");
+    if (ww && kind === "speech") addHeard(m, text, 0, Date.now());
+    else addSeg(kind, text, kind === "speech" ? state.speaker : "");
     composerInput.value = "";
   };
   composerInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); clearTimeout(autoTimer); commit(); } });
@@ -1938,10 +2285,10 @@ function renderLive() {
     tools,
     h("div", { id: "tx", class: "transcript", "aria-live": "off" }),
     h("div", { class: "composer" },
-      h("select", { id: "composerKind", "aria-label": "Line type" }, h("option", { value: "speech" }, "Said"), h("option", { value: "note" }, "Note")),
+      h("select", { id: "composerKind", "aria-label": "Line type" }, h("option", { value: "speech" }, "Said"), h("option", { value: "note", selected: ww }, "Note")),
       composerInput,
       h("button", { type: "button", class: "btn", onclick: commit }, "Add")),
-    h("label", { class: "check small-text", style: "margin-top:8px" }, h("input", { type: "checkbox", id: "autoCommit" }), "Add typed text automatically after a pause (use this with Windows or Mac dictation)"));
+    h("label", { class: "check small-text", style: "margin-top:8px" }, h("input", { type: "checkbox", id: "autoCommit", onchange: (e) => { if (e.target.checked) $("#composerKind").value = "speech"; } }), "Add typed text automatically after a pause (use this with Windows or Mac dictation)"));
 
   const sayCard = h("div", { class: "card say", id: "sayCard" },
     h("div", { class: "card-head" }, h("h2", null, ww ? "What to say" : "Say next"), h("span", { id: "aiStatus", class: "status-line" })),
@@ -1989,8 +2336,16 @@ function segEl(s) {
   if (s.kind === "event") return h("div", { class: "seg event" }, `— ${s.text} —`);
   return h("div", { class: "seg" + (s.kind === "note" ? " note" : "") },
     h("span", { class: "meta" }, fmtClock(s.t)),
-    s.kind === "note" ? h("span", { class: "sp" }, "Note") : s.sp ? h("span", { class: "sp" }, s.sp) : null,
+    s.kind === "note" ? h("span", { class: "sp" }, "Note") : speakerTag(s),
     h("span", { class: "tx" }, s.text));
+}
+const TAG_WHY = { cue: "Heard: the moderator called this seat, or the speaker said their number", order: "From the speaking order", tap: "Set by you" };
+function speakerTag(s) {
+  const game = state.cur && state.cur.mode === "werewolf";
+  if (!s.sp) return game && autoSeatOn() ? h("span", { class: "sp unsure", title: "Not sure who said this yet" }, "?") : null;
+  const unsure = s.by === "ai" && (s.c || 0) < 60;
+  const why = s.by === "ai" ? `AllKnowing's call from what was said (${s.c || 0}% sure)` : TAG_WHY[s.by] || "";
+  return h("span", { class: "sp" + (unsure ? " unsure" : ""), title: game ? why : "" }, s.sp + (unsure ? "?" : ""));
 }
 function renderTranscriptAll() {
   const box = $("#tx");
@@ -2110,7 +2465,7 @@ function renderBoard() {
     const read = me ? "me" : (p && p.read) || "unsure";
     const isOut = out.has(i) || (p && p.status === "out");
     const tag = me ? "Me" : read === "wolf" ? "Wolf?" : read === "good" ? "Good?" : "";
-    seats.append(h("div", { class: `seat ${read}${me ? " me" : ""}${isOut ? " out" : ""}`, title: p && p.note ? p.note : "" },
+    seats.append(h("div", { class: `seat ${read}${me ? " me" : ""}${isOut ? " out" : ""}`, "data-seat": i, title: p && p.note ? p.note : "" },
       h("div", { class: "row space" }, h("span", { class: "num" }, "#" + i), h("span", { class: "tag" }, tag)),
       p && p.claim ? h("span", { class: "claim" }, (me ? "" : "Claims ") + p.claim) : null,
       !me && p && p.guess ? h("span", { class: "guess" }, "Likely " + p.guess) : null,
@@ -2118,6 +2473,7 @@ function renderBoard() {
       p && p.note ? h("span", { class: "note" }, p.note) : null));
   }
   c.append(seats);
+  markSpeaking();
   if (!l) { c.append(h("p", { class: "empty" }, "Reads on each seat, who to vote and tonight's move appear here once the table is talking.")); return; }
   c.append(h("div", { class: "verdicts" },
     h("div", { class: "verdict" }, h("span", { class: "eyebrow" }, "Vote"), h("strong", null, l.vote.seat ? "#" + l.vote.seat : "No vote yet"), l.vote.why ? h("span", { class: "muted" }, l.vote.why) : null),

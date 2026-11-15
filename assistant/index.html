@@ -1588,13 +1588,14 @@ async function runLiveUpdate(reason = "manual") {
   state.aiCtl = ctl;
   const charsAtStart = txChars(m);
   const linesAtStart = m.segs.length;
+  const floorAtStart = { ...state.tr };
   state.turnUpdateDue = false;
   try {
     const prompt = m.mode === "werewolf" ? promptLiveGame(m) : promptLiveMeeting(m);
     const data = await cap.sample.json(prompt, { modelTier: state.settings.liveTier === "quick" ? "quick" : "default", signal: ctl.signal, cache: false });
     if (state.cur !== m) return;
     m.live = m.mode === "werewolf" ? normGameLive(data, m) : normMeetingLive(data);
-    if (m.mode === "werewolf" && autoSeatOn()) applySpeakers(m, data, linesAtStart);
+    if (m.mode === "werewolf" && autoSeatOn()) applySpeakers(m, data, linesAtStart, floorAtStart);
     m.liveAt = Date.now();
     if (m.mode === "meeting" && !m.title && m.live.title) { m.title = m.live.title; renderCurrentBox(); }
     state.lastAnalysisAt = Date.now();
@@ -2075,16 +2076,19 @@ function trackerAt(m, seen, ai) {
   return base;
 }
 const userSet = (s) => s.by === "tap" || (!!s.sp && !s.by);
+// A seat as Claude may write it: 5, "5", "#5", or 0 / "法官" for the moderator.
+const seatFrom = (v) => { const t = String(v ?? "").trim(); return /^(法官|moderator|mod)$/i.test(t) ? 0 : t === "" ? Number.NaN : Number(t.replace(/^#/, "").replace(/号$/, "")); };
 // Claude's answer to "who said each line": apply it, then re-tag what was heard while it was thinking.
-function applySpeakers(m, data, seen) {
+// `seen` is how many lines it was shown, and `floorThen` is where the floor was at that point.
+function applySpeakers(m, data, seen, floorThen) {
   const n = m.game.players;
   const changed = new Set();
   for (const e of arr(obj(data).speakers, 200)) {
     const o = obj(e);
-    const i = Number(o.line);
+    const i = Number(String(o.line ?? "").replace(/^\s*L/i, ""));
     const s = Number.isInteger(i) && i >= 0 && i < seen ? m.segs[i] : null;
     if (!s || s.kind !== "speech" || userSet(s)) continue;
-    const seat = Number(o.seat);
+    const seat = seatFrom(o.seat);
     const sp = seat === 0 ? "法官" : Number.isInteger(seat) && seat >= 1 && seat <= n ? "#" + seat : "";
     if (!sp) continue;
     const sure = clampNum(o.sure, 0, 100);
@@ -2099,26 +2103,29 @@ function applySpeakers(m, data, seen) {
   }
   const t = obj(obj(data).turn);
   const before = state.tr;
-  let tr = trackerAt(m, seen, { speaking: Number(t.speaking), next: Number(t.next), dir: t.direction === "down" ? -1 : t.direction === "up" ? 1 : 0 });
-  for (let j = Math.min(seen, m.segs.length); j < m.segs.length; j++) {
-    const s = m.segs[j];
-    if (s.kind === "event" && PHASE_LABELS.has(s.text)) tr = newTracker(tr.dir);
-    if (s.kind !== "speech") continue;
-    if (userSet(s)) {
-      const seat = s.sp[0] === "#" ? Number(s.sp.slice(1)) : s.sp === "法官" ? -1 : 0;
-      tr = { ...newTracker(tr.dir), seat, by: "tap", ended: seat > 0 && endsTurn(s.text) };
-      continue;
+  let tr = trackerAt(m, seen, { speaking: seatFrom(t.speaking), next: seatFrom(t.next), dir: t.direction === "down" ? -1 : t.direction === "up" ? 1 : 0 });
+  // Only when Claude sees the floor somewhere else than the page did: re-tag the lines heard since, from Claude's view.
+  if (tr.seat !== 0 && (tr.seat !== floorThen.seat || tr.ended !== floorThen.ended || tr.dir !== floorThen.dir)) {
+    for (let j = Math.min(seen, m.segs.length); j < m.segs.length; j++) {
+      const s = m.segs[j];
+      if (s.kind === "event" && PHASE_LABELS.has(s.text)) tr = newTracker(tr.dir);
+      if (s.kind !== "speech") continue;
+      if (userSet(s)) {
+        const seat = s.sp[0] === "#" ? Number(s.sp.slice(1)) : s.sp === "法官" ? -1 : 0;
+        tr = { ...newTracker(tr.dir), seat, by: "tap", ended: seat > 0 && endsTurn(s.text) };
+        continue;
+      }
+      const r = seatStep(tr, s.text, m);
+      tr = r.tr;
+      if (s.sp !== r.sp || (s.by || "") !== r.by) {
+        s.sp = r.sp;
+        s.by = r.by;
+        s.c = 0;
+        changed.add(j);
+      }
     }
-    const r = seatStep(tr, s.text, m);
-    tr = r.tr;
-    if (s.sp !== r.sp || (s.by || "") !== r.by) {
-      s.sp = r.sp;
-      s.by = r.by;
-      s.c = 0;
-      changed.add(j);
-    }
+    state.tr = tr;
   }
-  state.tr = tr;
   if (changed.size) {
     markSegDirty(Math.min(...changed));
     for (const i of changed) refreshSegEl(m.segs[i]);
@@ -2126,7 +2133,7 @@ function applySpeakers(m, data, seen) {
   renderChips();
   const me = Number(m.game.seat);
   const mine = (x) => x.seat === me && !x.ended;
-  if (mine(tr) && !mine(before)) myTurn();
+  if (mine(state.tr) && !mine(before)) myTurn();
 }
 function refreshSegEl(s) {
   const old = state.segEls.get(s.id);

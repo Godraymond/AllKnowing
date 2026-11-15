@@ -219,6 +219,10 @@ vm.runInNewContext(code, sandbox);
 			c0.headers["anthropic-dangerous-direct-browser-access"] === "true",
 	);
 	ok(
+		"request: little thinking for quick answers",
+		c0.body.output_config && c0.body.output_config.effort === "low",
+	);
+	ok(
 		"request: fast model, streaming, the prompt as text",
 		c0.body.model === "claude-haiku-5-5" &&
 			c0.body.stream === true &&
@@ -271,6 +275,10 @@ vm.runInNewContext(code, sandbox);
 		"a refusal → refused",
 		(await errorOf({ text: "I can't help with that.", stop: "refusal" })).code === "refused",
 	);
+	ok(
+		"request: some thinking for the thorough work",
+		claudeCalls[1].body.output_config.effort === "medium",
+	);
 	const before = claudeCalls.length;
 	claudeReply = (body) =>
 		body.max_tokens > 8192
@@ -285,6 +293,24 @@ vm.runInNewContext(code, sandbox);
 		retried.ok === true &&
 			claudeCalls.length === before + 2 &&
 			claudeCalls[before + 1].body.max_tokens === 8192,
+	);
+	const before2 = claudeCalls.length;
+	claudeReply = (body) =>
+		body.output_config
+			? { status: 400, message: "output_config: Extra inputs are not permitted" }
+			: { text: '{"ok":2}' };
+	const noEffort = await sample.json("x", {});
+	ok(
+		"a model that refuses the effort setting: asked again without it",
+		noEffort.ok === 2 &&
+			claudeCalls.length === before2 + 2 &&
+			!("output_config" in JSON.parse(JSON.stringify(claudeCalls[before2 + 1].body))),
+	);
+	claudeReply = () => ({ status: 400, message: "messages: at least one message is required" });
+	ok(
+		"any other refusal is passed on, not retried",
+		(await errorOf({ status: 400, message: "messages: at least one message is required" }))
+			.code === "bad_request",
 	);
 
 	// ---- listening ----

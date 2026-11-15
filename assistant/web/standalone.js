@@ -144,6 +144,8 @@
 				limit: cap ? Number(cap[1]) : 4096,
 			});
 		}
+		if (res.status === 400 && /output_config|effort/i.test(said))
+			return fail("no_effort", `Claude turned the request down: ${said}`);
 		if (res.status === 413 || /too long|too large|maximum/i.test(said))
 			return fail("prompt_too_large");
 		if (res.status === 429)
@@ -200,6 +202,9 @@
 			max_tokens: json ? 12000 : 2048,
 			stream: true,
 			messages: [{ role: "user", content }],
+			// Less thinking than the models' default: answers arrive sooner and cost less, which matters
+			// more for a live coach than the last bit of depth. Thinking counts as output and toward max_tokens.
+			output_config: { effort: opts.modelTier === "quick" ? "low" : "medium" },
 		};
 		if (json)
 			body.system =
@@ -215,13 +220,17 @@
 					signal: opts.signal,
 				});
 			let res = await send();
-			if (!res.ok) {
+			// Two things a model may turn down and that are worth one more try without: the answer limit, and the effort setting.
+			for (let tries = 0; !res.ok && tries < 2; tries++) {
 				const err = await claudeError(res, model);
-				if (err.code !== "max_tokens" || !(err.limit < body.max_tokens)) throw err;
-				body.max_tokens = err.limit;
+				if (err.code === "max_tokens" && err.limit < body.max_tokens)
+					body.max_tokens = err.limit;
+				else if (err.code === "no_effort" && body.output_config)
+					body.output_config = undefined;
+				else throw err;
 				res = await send();
-				if (!res.ok) throw await claudeError(res, model);
 			}
+			if (!res.ok) throw await claudeError(res, model);
 			await readEvents(res, (ev) => {
 				if (
 					ev.type === "content_block_delta" &&

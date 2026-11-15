@@ -505,7 +505,10 @@ vm.runInNewContext(code, sandbox);
 	const bare = { ...sandbox, claude: undefined };
 	bare.window = bare;
 	vm.runInNewContext(code, bare);
-	ok("with no keys, it says what to add", /add your two keys/.test(bare.claude.notice));
+	ok(
+		"with nothing set up, it says what to add",
+		/connect Claude and add your speech key/.test(bare.claude.notice),
+	);
 	const noKey = async (fn) => {
 		try {
 			await fn();
@@ -519,6 +522,156 @@ vm.runInNewContext(code, sandbox);
 		(await noKey(async () => (await bare.claude.use("sample"))("x"))) === "no_key" &&
 			(await noKey(async () => (await bare.claude.use("dictation")).start())) === "no_key",
 	);
+
+	// ---- Claude through the Mac (the relay), on the user's plan ----
+	const macCalls = [];
+	let macReply = () => ({ text: "Mac says hi" });
+	const macFetch = (url, init = {}) => {
+		macCalls.push({
+			url,
+			headers: init.headers || {},
+			body: init.body ? JSON.parse(init.body) : null,
+		});
+		const r = macReply();
+		if (r.offline) return Promise.reject(new TypeError("Load failed"));
+		if (r.status)
+			return Promise.resolve({ ok: false, status: r.status, json: async () => r.body });
+		return fakeFetch(url, init);
+	};
+	store.set(
+		"allknowing:keys:v1",
+		JSON.stringify({
+			claudeVia: "mac",
+			macLink: "  https://mac-mini.tail1234.ts.net:8443/#ABCD-EFGH-JKLM-NPQR ",
+			speechKey: "abc123",
+		}),
+	);
+	const onMac = { ...sandbox, claude: undefined, fetch: macFetch };
+	onMac.window = onMac;
+	vm.runInNewContext(code, onMac);
+	ok("with the Mac link and a speech key, nothing is missing", onMac.claude.notice === "");
+	const macSample = await onMac.claude.use("sample");
+	claudeReply = () => ({ text: "Mac says hi" });
+	const viaMac = await macSample("hello", { modelTier: "quick" });
+	const m0 = macCalls[0];
+	ok(
+		"Claude goes to the Mac, with the pairing code as the key",
+		viaMac.text === "Mac says hi" &&
+			m0.url === "https://mac-mini.tail1234.ts.net:8443/v1/messages" &&
+			m0.headers["x-api-key"] === "ABCD-EFGH-JKLM-NPQR" &&
+			m0.body.model === "claude-haiku-5-5" &&
+			m0.body.output_config.effort === "low",
+		JSON.stringify(m0),
+	);
+	const macError = async (reply) => {
+		macReply = () => reply;
+		try {
+			await macSample.json("x", {});
+			return { code: "none" };
+		} catch (e) {
+			return e;
+		}
+	};
+	const limit = await macError({
+		status: 429,
+		body: {
+			type: "error",
+			error: {
+				type: "rate_limit_error",
+				message: "You've reached your Claude plan's usage limit. It resets 5:30 pm.",
+				relay: true,
+			},
+		},
+	});
+	ok(
+		"the Mac's own words are shown: out of plan usage",
+		limit.code === "rate_limited" && /plan's usage limit/.test(limit.userMessage),
+	);
+	const signedOut = await macError({
+		status: 401,
+		body: {
+			type: "error",
+			error: {
+				type: "authentication_error",
+				message: "Claude Code on your Mac isn't signed in.",
+				relay: true,
+			},
+		},
+	});
+	ok(
+		"and: not signed in",
+		signedOut.code === "bad_key" && /isn't signed in/.test(signedOut.userMessage),
+	);
+	const offline = await macError({ offline: true });
+	ok(
+		"a Mac that can't be reached is named as such",
+		offline.code === "upstream_error" && /Couldn't reach your Mac/.test(offline.userMessage),
+	);
+	macReply = () => ({});
+	claudeReply = () => ({ text: "half" });
+	const sseError = await (async () => {
+		const original = fakeFetch;
+		// A stream that carries the relay's error event part way through.
+		const ev = (data) => `event: ${data.type}\ndata: ${JSON.stringify(data)}\n\n`;
+		const bytes = Buffer.from(
+			ev({ type: "message_start" }) +
+				ev({
+					type: "content_block_delta",
+					index: 0,
+					delta: { type: "text_delta", text: "half" },
+				}) +
+				ev({
+					type: "error",
+					error: {
+						type: "api_error",
+						message: "Claude Code on your Mac stopped with an error: boom.",
+						relay: true,
+					},
+				}),
+		);
+		let sent = false;
+		const reader = {
+			read: async () => {
+				if (sent) return { done: true };
+				sent = true;
+				return { done: false, value: new Uint8Array(bytes) };
+			},
+		};
+		onMac.fetch = () =>
+			Promise.resolve({ ok: true, status: 200, body: { getReader: () => reader } });
+		try {
+			await macSample("x", {});
+			return { code: "none" };
+		} catch (e) {
+			return e;
+		} finally {
+			onMac.fetch = original;
+		}
+	})();
+	ok(
+		"an error from the Mac part way through an answer is shown in its words",
+		sseError.code === "upstream_error" &&
+			/stopped with an error: boom/.test(sseError.userMessage),
+		JSON.stringify(sseError),
+	);
+	store.set("allknowing:keys:v1", JSON.stringify({ claudeVia: "mac", speechKey: "abc123" }));
+	const noLink = { ...sandbox, claude: undefined };
+	noLink.window = noLink;
+	vm.runInNewContext(code, noLink);
+	ok(
+		"on the Mac option with no link yet: it says to paste it",
+		/Paste the Mac link/.test(noLink.claude.notice) &&
+			(await noKey(async () => (await noLink.claude.use("sample"))("x"))) === "no_key",
+	);
+	store.set("allknowing:keys:v1", JSON.stringify({ claudeKey: "sk-ant-x" }));
+	const legacy = { ...sandbox, claude: undefined };
+	legacy.window = legacy;
+	vm.runInNewContext(code, legacy);
+	ok(
+		"someone who already set an API key stays on it",
+		/speech key/.test(legacy.claude.notice) && !/Mac/.test(legacy.claude.notice),
+	);
+
 	const inside = { ...sandbox, claude: { real: true } };
 	inside.window = inside;
 	vm.runInNewContext(code, inside);

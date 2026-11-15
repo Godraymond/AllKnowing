@@ -3,7 +3,8 @@
    Inside claude.ai the page gets `window.claude` from the artifact runtime: Claude, dictation, storage,
    Outlook. Anywhere else this file stands in for the parts the page uses, on the user's own accounts:
 
-   - sample      Claude, through the Anthropic API with the user's own API key
+   - sample      Claude: through Claude Code on the user's own Mac, signed in with their Claude plan
+                 (relay/relay.cjs, reached over Tailscale), or through the Anthropic API with their own key
    - dictation   the microphone, streamed to a speech-to-text service that also says which voice spoke
                  (Soniox real-time API). That is what the claude.ai listener can't give: it hands the page
                  words only.
@@ -22,6 +23,8 @@
 	const RATE = 16000;
 	const WHERE = "under “This device” on the Home screen";
 	const DEFAULTS = {
+		claudeVia: "",
+		macLink: "",
 		claudeKey: "",
 		speechKey: "",
 		quick: "claude-haiku-5-5",
@@ -65,6 +68,18 @@
 	}
 	for (const k of Object.keys(DEFAULTS))
 		if (typeof cfg[k] !== "string" || (!cfg[k] && DEFAULTS[k])) cfg[k] = DEFAULTS[k];
+	// Where Claude runs: "mac" (the relay on the user's Mac, their Claude plan) or "key" (an API key).
+	if (cfg.claudeVia !== "mac" && cfg.claudeVia !== "key")
+		cfg.claudeVia = cfg.claudeKey ? "key" : "mac";
+	const viaMac = () => cfg.claudeVia === "mac";
+	// The Mac link the installer prints: https://<mac>.<tailnet>.ts.net:8443/#<pairing code>
+	function macTarget() {
+		const raw = String(cfg.macLink || "").trim();
+		const url = raw.match(/https?:\/\/[^\s/#?]+/i);
+		const code = raw.match(/#\s*([A-Za-z0-9][A-Za-z0-9 -]{10,}?)\s*$/);
+		return url && code ? { base: url[0], code: code[1] } : null;
+	}
+	const claudeReady = () => (viaMac() ? !!macTarget() : !!cfg.claudeKey.trim());
 	function saveCfg() {
 		try {
 			localStorage.setItem(STORE, JSON.stringify(cfg));
@@ -75,12 +90,14 @@
 	}
 	// What the page should say at the top while something is missing.
 	function missing() {
-		if (!cfg.claudeKey && !cfg.speechKey)
-			return "To get going, add your two keys in the “This device” box on the Home screen: one for Claude and one for listening.";
+		if (!claudeReady() && !cfg.speechKey)
+			return "To get going, open the “This device” box on the Home screen: connect Claude and add your speech key.";
 		if (!cfg.speechKey)
 			return "Add a speech key in the “This device” box on the Home screen to switch on listening.";
-		if (!cfg.claudeKey)
-			return "Add a Claude API key in the “This device” box on the Home screen to switch on summaries and “what to say”.";
+		if (!claudeReady())
+			return viaMac()
+				? "Paste the Mac link in the “This device” box on the Home screen to switch on summaries and “what to say”."
+				: "Add a Claude API key in the “This device” box on the Home screen to switch on summaries and “what to say”.";
 		return "";
 	}
 	let lastTold = null;
@@ -91,9 +108,11 @@
 	}
 
 	/* ---------- Claude (Anthropic Messages API) ---------- */
+	// The relay on the Mac answers like the API, so both go the same way; the Mac takes its pairing code as the key.
+	const claudeBase = () => (viaMac() ? `${macTarget().base}/v1` : CLAUDE_API);
 	const claudeHeaders = () => ({
 		"content-type": "application/json",
-		"x-api-key": cfg.claudeKey.trim(),
+		"x-api-key": viaMac() ? macTarget().code : cfg.claudeKey.trim(),
 		"anthropic-version": "2023-06-01",
 		// The API only answers a browser directly when the page says it knows it is sending the user's own key.
 		"anthropic-dangerous-direct-browser-access": "true",
@@ -114,6 +133,15 @@
 			reader.readAsDataURL(blob);
 		});
 	}
+	function relayCode(status, type) {
+		if (status === 401 || type === "authentication_error") return "bad_key";
+		if (status === 429 || status === 529 || /rate_limit|overloaded/.test(type))
+			return "rate_limited";
+		if (status === 402) return "no_credit";
+		if (status === 404) return "bad_model";
+		if (status === 400) return "bad_request";
+		return "upstream_error";
+	}
 	async function claudeError(res, model) {
 		let info = {};
 		try {
@@ -123,6 +151,8 @@
 		}
 		const type = (info.error && info.error.type) || "";
 		const said = String((info.error && info.error.message) || "").slice(0, 200);
+		// The relay on the Mac writes its errors for the user.
+		if (info.error && info.error.relay && said) return fail(relayCode(res.status, type), said);
 		if (res.status === 401)
 			return fail("bad_key", `Claude didn't accept that API key. Check it ${WHERE}.`);
 		if (/credit balance/i.test(said))
@@ -192,7 +222,13 @@
 		}
 	}
 	async function ask(prompt, opts = {}, json = false) {
-		if (!cfg.claudeKey.trim()) throw fail("no_key", `Add your Claude API key ${WHERE} first.`);
+		if (!claudeReady())
+			throw fail(
+				"no_key",
+				viaMac()
+					? `Paste the Mac link ${WHERE} first.`
+					: `Add your Claude API key ${WHERE} first.`,
+			);
 		const model = (opts.modelTier === "quick" ? cfg.quick : cfg.thorough).trim();
 		const content = [];
 		for (const img of opts.images || []) content.push(await imageBlock(img));
@@ -213,7 +249,7 @@
 		let stop = "";
 		try {
 			const send = () =>
-				fetch(`${CLAUDE_API}/messages`, {
+				fetch(`${claudeBase()}/messages`, {
 					method: "POST",
 					headers: claudeHeaders(),
 					body: JSON.stringify(body),
@@ -243,6 +279,8 @@
 					stop = ev.delta.stop_reason;
 				else if (ev.type === "error") {
 					const kind = (ev.error && ev.error.type) || "";
+					if (ev.error && ev.error.relay && ev.error.message)
+						throw fail(relayCode(0, kind), ev.error.message);
 					throw kind === "overloaded_error"
 						? fail(
 								"rate_limited",
@@ -256,7 +294,9 @@
 			if (e && e.name === "AbortError") throw fail("cancelled", "", { text });
 			throw fail(
 				"upstream_error",
-				"Couldn't reach Claude. Check the internet connection and try again.",
+				viaMac()
+					? "Couldn't reach your Mac. Check that it's on, and that Tailscale is connected on this phone."
+					: "Couldn't reach Claude. Check the internet connection and try again.",
 				{ text },
 			);
 		}
@@ -918,10 +958,32 @@ registerProcessor("ak-pcm", AkPcm);`;
 
 	/* ---------- the “This device” box on the Home screen ---------- */
 	async function testClaude() {
-		if (!cfg.claudeKey.trim()) return "Paste a key first.";
+		if (viaMac()) {
+			const mac = macTarget();
+			if (!mac)
+				return "Paste the Mac link first (it starts with https:// and ends with # and the code).";
+			let info = {};
+			try {
+				const res = await fetch(`${mac.base}/health`, {
+					headers: { "x-api-key": mac.code },
+				});
+				info = await res.json().catch(() => ({}));
+				if (!res.ok)
+					return (
+						(info.error && info.error.message) || `Your Mac said no (${res.status}).`
+					);
+			} catch {
+				return "Couldn't reach your Mac. Check that it's on, that the relay is installed, and that Tailscale is connected on this phone.";
+			}
+			const cc = info.claude || {};
+			if (!cc.found)
+				return "Reached your Mac, but Claude Code isn't installed there. Run the installer on the Mac again.";
+			if (!cc.loggedIn)
+				return "Reached your Mac, but Claude Code there isn't signed in. On the Mac, run: claude auth login";
+		} else if (!cfg.claudeKey.trim()) return "Paste a key first.";
 		try {
 			await ask("Reply with the single word OK.", { modelTier: "quick" });
-			return "Works.";
+			return viaMac() ? "Works. Claude answers through your Mac, on your plan." : "Works.";
 		} catch (e) {
 			return (e && e.userMessage) || `Didn't work (${(e && e.code) || "error"}).`;
 		}
@@ -965,7 +1027,7 @@ registerProcessor("ak-pcm", AkPcm);`;
 			);
 		});
 	}
-	function keyField(id, label, key, hint, test) {
+	function keyField(id, label, key, hint, test, placeholder = "Paste it here") {
 		const status = el("span", { class: "small-text muted", role: "status" });
 		const input = el("input", {
 			id,
@@ -974,7 +1036,7 @@ registerProcessor("ak-pcm", AkPcm);`;
 			autocomplete: "off",
 			autocapitalize: "off",
 			spellcheck: "false",
-			placeholder: "Paste it here",
+			placeholder,
 			oninput: (e) => {
 				cfg[key] = e.target.value.trim();
 				saveCfg();
@@ -1035,6 +1097,80 @@ registerProcessor("ak-pcm", AkPcm);`;
 		return el("div", { class: "field" }, el("label", { for: id }, label), select);
 	}
 	const link = (href, text) => el("a", { href, target: "_blank", rel: "noopener" }, text);
+	// Where Claude runs: the user's Mac (their Claude plan, through the relay) or an API key.
+	function claudeSection() {
+		const box = el("div", { class: "stack", style: "gap:10px" });
+		const draw = () => {
+			const choice = (value, label) =>
+				el(
+					"label",
+					{ class: "check" },
+					el("input", {
+						type: "radio",
+						name: "akClaudeVia",
+						style: "width:auto;margin:0",
+						value,
+						checked: cfg.claudeVia === value,
+						onchange: () => {
+							cfg.claudeVia = value;
+							saveCfg();
+							draw();
+						},
+					}),
+					label,
+				);
+			const field = viaMac()
+				? keyField(
+						"akMacLink",
+						"Mac link",
+						"macLink",
+						el(
+							"span",
+							null,
+							"The installer on your Mac prints it and copies it for you. Claude Code on the Mac answers, on your Claude plan, so keep the Mac on and Tailscale connected on this phone. Setup: ",
+							link(
+								"https://github.com/Godraymond/AllKnowing/blob/main/assistant/relay/README.md",
+								"Claude on your Mac",
+							),
+							".",
+						),
+						testClaude,
+						"https://your-mac….ts.net:8443/#XXXX-XXXX-XXXX-XXXX",
+					)
+				: keyField(
+						"akClaudeKey",
+						"Claude API key",
+						"claudeKey",
+						el(
+							"span",
+							null,
+							"Writes the summaries, reads and “what to say”. From ",
+							link(
+								"https://console.anthropic.com/settings/keys",
+								"console.anthropic.com",
+							),
+							", pay as you go (Max, Ultra and Team plans include monthly API credits). It sees what was said and your notes.",
+						),
+						testClaude,
+					);
+			box.replaceChildren(
+				el(
+					"div",
+					{ class: "stack", style: "gap:6px" },
+					el("span", { class: "small-text", style: "font-weight:600" }, "Claude runs on"),
+					el(
+						"div",
+						{ class: "row", style: "gap:18px" },
+						choice("mac", "My Mac, on my Claude plan"),
+						choice("key", "An API key"),
+					),
+				),
+				field,
+			);
+		};
+		draw();
+		return box;
+	}
 	function homeCard() {
 		const tips = [];
 		if (isIOS() && !isInstalled())
@@ -1064,24 +1200,9 @@ registerProcessor("ak-pcm", AkPcm);`;
 				el(
 					"p",
 					{ class: "small-text muted" },
-					"Outside claude.ai, AllKnowing runs on two accounts of your own. The keys stay on this device, and each is sent only to its own service.",
+					"Outside claude.ai, AllKnowing needs Claude and a speech service of your own. What you enter here stays on this device, and each is sent only to its own service.",
 				),
-				keyField(
-					"akClaudeKey",
-					"Claude API key",
-					"claudeKey",
-					el(
-						"span",
-						null,
-						"Writes the summaries, reads and “what to say”. From ",
-						link(
-							"https://console.anthropic.com/settings/keys",
-							"console.anthropic.com",
-						),
-						", pay as you go. It sees what was said and your notes.",
-					),
-					testClaude,
-				),
+				claudeSection(),
 				keyField(
 					"akSpeechKey",
 					"Speech key (Soniox)",

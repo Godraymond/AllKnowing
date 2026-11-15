@@ -43,6 +43,12 @@ jobs:
       - name: Check the web app's runtime
         run: node assistant/check-web-runtime.cjs
 
+      - name: Check the Mac relay
+        run: node assistant/check-relay.cjs
+
+      - name: Check the Mac installer
+        run: bash -n assistant/relay/install.sh
+
       - name: Build
         run: node assistant/build-web.cjs "$(date -u +%Y-%m-%d).${GITHUB_SHA::7}"
 

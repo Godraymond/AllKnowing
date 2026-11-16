@@ -1,7 +1,7 @@
 {
 	"name": "AllKnowing",
 	"short_name": "AllKnowing",
-	"description": "Listens to a meeting or a 狼人杀 table, tells you what's going on and what to say next, then writes the minutes.",
+	"description": "Listens to a meeting, tells you what's going on and what to say next, then writes the minutes and follow-ups.",
 	"start_url": "./",
 	"scope": "./",
 	"display": "standalone",

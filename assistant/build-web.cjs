@@ -7,8 +7,16 @@
 // the app manifest and icons, the iOS "installed app" tags, and web/standalone.js, which gives the
 // page Claude and a microphone on the user's own keys. index.html itself stays exactly what the
 // artifact runs, so nothing here can affect the artifact.
+//
+// The same files are what the Mac mini serves (hub/hub.cjs). dist/hub/ holds the hub and its installer,
+// and dist/version.json lists every file with its SHA-256, which the installer and the hub's updates check.
 const fs = require("node:fs");
 const path = require("node:path");
+const crypto = require("node:crypto");
+
+// What this page expects of the Mac mini's server (HUB_API in hub/hub.cjs). Raise both together when the
+// page starts using something new there, so an older hub waits for its own update instead.
+const HUB_API = 1;
 
 const src = __dirname;
 const web = path.join(src, "web");
@@ -50,6 +58,29 @@ for (const name of [
 ]) {
 	fs.copyFileSync(path.join(web, name), path.join(out, name));
 }
+// The Mac mini's server and its installer, fetched from here by the installer and by the hub's updates.
+fs.mkdirSync(path.join(out, "hub"), { recursive: true });
+for (const name of ["hub.cjs", "install.sh"])
+	fs.copyFileSync(path.join(src, "hub", name), path.join(out, "hub", name));
 // GitHub Pages: serve the files as they are.
 fs.writeFileSync(path.join(out, ".nojekyll"), "");
+const files = {};
+const walk = (dir, rel) => {
+	for (const e of fs
+		.readdirSync(dir, { withFileTypes: true })
+		.sort((a, b) => (a.name < b.name ? -1 : 1))) {
+		const r = rel ? `${rel}/${e.name}` : e.name;
+		if (e.isDirectory()) walk(path.join(dir, e.name), r);
+		else if (!e.name.startsWith("."))
+			files[r] = crypto
+				.createHash("sha256")
+				.update(fs.readFileSync(path.join(dir, e.name)))
+				.digest("hex");
+	}
+};
+walk(out, "");
+fs.writeFileSync(
+	path.join(out, "version.json"),
+	`${JSON.stringify({ version, built: new Date().toISOString(), hubApi: HUB_API, files }, null, 2)}\n`,
+);
 console.log(`Built the web app (${version}) in ${path.relative(process.cwd(), out) || "."}`);

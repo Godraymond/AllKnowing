@@ -137,7 +137,6 @@ main { padding: 20px; max-width: 1480px; margin: 0 auto; }
 .mtitle { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; }
 .mtitle:hover { color: var(--accent); }
 .mode-badge { font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
-.mode-badge.ww { background: color-mix(in srgb, var(--live) 14%, transparent); color: var(--live); }
 .mstatus { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
 
 /* prep */
@@ -179,7 +178,6 @@ main { padding: 20px; max-width: 1480px; margin: 0 auto; }
 .chip[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
 .chip.me { border-color: var(--accent); color: var(--accent); }
 .chip.me[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
-.chip.out { text-decoration: line-through; opacity: .55; }
 .chips-label { font-size: 12px; color: var(--muted); font-weight: 600; width: 100%; }
 .composer { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; margin-top: 10px; }
 .composer select, .composer input { padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--surface); min-width: 0; }
@@ -197,31 +195,6 @@ main { padding: 20px; max-width: 1480px; margin: 0 auto; }
 .topics { display: grid; gap: 12px; }
 .topic h3 { font-family: var(--font-body); font-size: 14.5px; font-weight: 700; }
 .banner { padding: 10px 14px; border-radius: 10px; background: color-mix(in srgb, var(--warn) 13%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 12px; font-size: 14px; }
-
-/* seat board */
-.seats { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
-.seat { border: 1px solid var(--line); border-radius: 10px; padding: 8px; background: var(--surface); display: grid; gap: 4px; align-content: start; }
-.seat .num { font-family: var(--font-display); font-weight: 800; font-size: 18px; }
-.seat .tag { font-size: 11.5px; font-weight: 700; }
-.seat.wolf { border-color: color-mix(in srgb, var(--bad) 60%, var(--line)); background: color-mix(in srgb, var(--bad) 9%, var(--surface)); color: var(--ink); }
-.seat.wolf .tag, .seat.wolf .conf i { color: var(--bad); }
-.seat.good { border-color: color-mix(in srgb, var(--good) 55%, var(--line)); background: color-mix(in srgb, var(--good) 8%, var(--surface)); }
-.seat.good .tag, .seat.good .conf i { color: var(--good); }
-.seat.me { outline: 2px solid var(--accent); outline-offset: -1px; }
-.seat.me .tag { color: var(--accent); }
-.seat.out { opacity: .5; }
-.seat.out .num { text-decoration: line-through; }
-.seat .claim { font-size: 12px; font-weight: 700; }
-.seat .conf { height: 4px; border-radius: 4px; background: var(--surface-2); overflow: hidden; color: var(--muted); }
-.seat .conf i { display: block; height: 100%; background: currentColor; }
-.seat .note { font-size: 12px; color: var(--muted); line-height: 1.3; }
-.seat .guess { font-size: 12px; font-weight: 700; }
-.seat.speaking .num::after { content: " ●"; color: var(--bad); font-size: 11px; vertical-align: middle; }
-.seat.wolf .guess { color: var(--bad); }
-.seat.good .guess { color: var(--good); }
-.verdicts { display: grid; gap: 8px; margin-top: 12px; }
-.verdict { display: grid; gap: 2px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); }
-.verdict strong { font-size: 17px; }
 
 /* visual summary */
 .vs { display: grid; gap: 14px; }
@@ -458,20 +431,10 @@ const AUTO_MIN_CHARS = 300;
 const ROUTES = ["home", "prep", "live", "after", "todos", "import"];
 const MEDIA_EXT = ["mp4", "m4a", "mp3", "wav", "mov", "aac", "webm", "ogg", "oga", "opus", "flac", "amr", "3gp", "mkv", "m4v", "wma", "avi"];
 const MAMMOTH_URL = "https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js";
-const ROLES = ["村民 Villager", "狼人 Werewolf", "预言家 Seer", "女巫 Witch", "猎人 Hunter", "守卫 Guard", "白痴 Idiot", "狼王 Wolf King", "白狼王 White Wolf King", "骑士 Knight", "丘比特 Cupid", "其他 Other"];
-const BOARDS = [
-  { id: "12-yngb", label: "12人 预女猎白 · 4狼 预言家 女巫 猎人 白痴 4民", players: 12 },
-  { id: "12-yngs", label: "12人 预女猎守 · 4狼 预言家 女巫 猎人 守卫 4民", players: 12 },
-  { id: "9-std", label: "9人 · 3狼 预言家 女巫 猎人 3民", players: 9 },
-  { id: "6-std", label: "6人 · 2狼 预言家 女巫 2民", players: 6 },
-  { id: "custom", label: "Custom: describe it below", players: 0 },
-];
-const DICT_LANGS = [["", "Auto (game or meeting language)"], ["en", "English"], ["zh", "中文 普通话"], ["zh-HK", "粵語 Cantonese"], ["zh-TW", "國語 (台灣)"]];
+const DICT_LANGS = [["", "Auto (the meeting's language)"], ["en", "English"], ["zh", "中文 普通话"], ["zh-HK", "粵語 Cantonese"], ["zh-TW", "國語 (台灣)"]];
 const AI_LANGS = [["match", "Match the conversation"], ["en", "English"], ["zh-Hans", "简体中文"], ["zh-Hant", "繁體中文"]];
 const MEETING_LANGS = [["match", "Mixed / not sure"], ["en", "English"], ["zh", "普通话 Mandarin"], ["yue", "粵語 Cantonese"]];
-const TABLE_LANGS = [["zh", "普通话 Mandarin"], ["yue", "粵語 Cantonese"], ["en", "English"]];
 const langName = (code) => (MEETING_LANGS.find(([c]) => c === code) || MEETING_LANGS[0])[1];
-const tableLangName = (code) => (TABLE_LANGS.find(([c]) => c === code) || TABLE_LANGS[0])[1];
 
 const EXAMPLE_VISUAL = {
   title: "Product Launch Timeline Review",
@@ -495,19 +458,6 @@ const LIVE_MEETING_SHAPE = `{
   "say_next": [{"label": "2-4 words", "line": "exact words to say", "why": "short reason"}],
   "watch_out": ["risk"]
 }`;
-const LIVE_GAME_SHAPE = `{
-  "speakers": [{"line": 12, "seat": 5, "sure": 80}],
-  "turn": {"speaking": 5, "next": 6, "direction": "up|down|unknown"},
-  "phase": "current phase, e.g. 第1天白天发言",
-  "situation": "2-3 sentences on where the game stands and what matters now",
-  "players": [{"seat": 1, "status": "alive|out|unknown", "claim": "role claimed, or empty", "guess": "role you think they really have (狼人, 预言家, 女巫, 猎人, 守卫, 平民…), ? if unsure, or empty", "read": "wolf|good|unsure|me", "confidence": 50, "note": "main reason, citing what they said or did"}],
-  "events": ["key fact in order: deaths, claims, checks, votes"],
-  "visual": {"title": "headline", "conclusions": ["conclusion"], "cards": [{"title": "heading", "subtitle": "takeaway", "bullets": ["point"]}]},
-  "say_next": [{"label": "2-4 words", "line": "speech to read out", "why": "short reason"}],
-  "vote": {"seat": 0, "why": "reason"},
-  "night": "night action advice, or empty",
-  "watch_out": ["what not to reveal, traps, likely lies"]
-}`;
 const PREP_MEETING_SHAPE = `{
   "title": "short meeting title",
   "objective": "one sentence",
@@ -522,16 +472,6 @@ const PREP_MEETING_SHAPE = `{
   "opening": "suggested opening words",
   "people": [{"name": "person", "angle": "what they care about and how to handle them"}]
 }`;
-const PREP_GAME_SHAPE = `{
-  "title": "short title",
-  "role_goal": "what the user's role must achieve",
-  "day1_speech": "ready-to-say first-day speech",
-  "reveal": "when and how to reveal the role, or not",
-  "night_policy": "how to use night actions",
-  "watch_for": ["tell or pattern to watch"],
-  "traps": ["mistake to avoid"],
-  "tips": ["board-specific tip"]
-}`;
 const minutesShape = (zh) => `{
   "title": "meeting title",
   "summary": "3-5 sentences",
@@ -543,22 +483,11 @@ const minutesShape = (zh) => `{
   "visual": {"title": "headline", "conclusions": ["conclusion"], "cards": [{"title": "heading", "subtitle": "takeaway", "bullets": ["point"]}]}${zh ? `,
   "zh_hant": {"summary": "...", "key_points": ["..."], "decisions": ["..."], "actions": [{"task": "...", "owner": "...", "due": "..."}]}` : ""}
 }`;
-const RECAP_SHAPE = `{
-  "title": "game title",
-  "result": "who won, or unknown",
-  "summary": "3-5 sentences",
-  "timeline": ["what happened, in order"],
-  "key_moments": ["turning point"],
-  "my_play": ["what the user did well or badly"],
-  "next_time": ["what to do differently"],
-  "visual": {"title": "headline", "conclusions": ["conclusion"], "cards": [{"title": "heading", "subtitle": "takeaway", "bullets": ["point"]}]}
-}`;
-
 /* ---------- state ---------- */
 const state = {
   route: "home",
   booted: false,
-  settings: { myName: "", aiLang: "match", liveTier: "default", auto: true, autoEvery: 60, dictLang: "", zhMinutes: true, autoSeat: true },
+  settings: { myName: "", aiLang: "match", liveTier: "default", auto: true, autoEvery: 60, dictLang: "", zhMinutes: true },
   meetings: [],
   todos: [],
   listsLoaded: false,
@@ -567,17 +496,10 @@ const state = {
   dictState: "idle",
   partial: "",
   speaker: "",
-  tr: { seat: 0, by: "", ended: false, fresh: false, dir: 1, v: 0, pv: 0 },
   voiceBase: 0,
   curVoice: 0,
   vOrd: new Map(),
-  closeSeg: false,
   lastHeardAt: 0,
-  uttOpen: false,
-  uttGap: 0,
-  myTurnAt: 0,
-  turnUpdateDue: false,
-  lastSpeech: null,
   openSegId: null,
   lastFinalAt: 0,
   segEls: new Map(),
@@ -593,7 +515,6 @@ const state = {
   lastAnalyzedChars: 0,
   sayNow: null,
   sayCtl: null,
-  markOut: false,
   listenNote: "",
   prepImages: [],
   imagesOK: false,
@@ -623,6 +544,8 @@ function modal(title, body, actions) {
   return { close, box };
 }
 function setBanner(html) { const b = $("#globalBanner"); if (b) b.innerHTML = html ? `<div class="banner">${html}</div>` : ""; }
+// What the web app's runtime wants said at the top (a key or a connection still missing), if anything.
+const hostNotice = () => (window.claude && window.claude.notice ? esc(window.claude.notice) : "");
 async function copy(text) {
   try { await navigator.clipboard.writeText(text); toast("Copied.", "good", 1800); }
   catch { toast("Couldn't copy. Select the text and copy it yourself.", "warn"); }
@@ -644,6 +567,8 @@ async function initCaps() {
 
 /* ---------- storage: claude.ai db, or this browser as a fallback ---------- */
 const P = { mode: "local", homeRef: null, idxCol: null, mtgCol: null, todoCol: null, local: { meetings: {}, index: {}, todos: {}, parts: {}, settings: {} } };
+// Old 狼人杀 games (from before this was meetings only) stay saved but aren't listed.
+const shown = (list) => list.filter((m) => m && m.mode !== "werewolf");
 const chains = new Map();
 function serial(key, fn) {
   const next = (chains.get(key) || Promise.resolve()).catch(() => null).then(fn);
@@ -704,8 +629,8 @@ function subscribeLists() {
     let confirmed = false;
     const timer = setTimeout(() => { if (!confirmed) setBanner("Can't reach your saved meetings yet. They'll appear when the connection comes back."); }, 10000);
     P.idxCol.orderBy("updatedAt", "desc").limit(300).onSnapshot((snap) => {
-      if (!snap.metadata.fromCache && !confirmed) { confirmed = true; clearTimeout(timer); setBanner(""); }
-      state.meetings = snap.docs.map((d) => d.data()).filter(Boolean);
+      if (!snap.metadata.fromCache && !confirmed) { confirmed = true; clearTimeout(timer); setBanner(hostNotice()); }
+      state.meetings = shown(snap.docs.map((d) => d.data()));
       state.listsLoaded = true;
       onListsChanged();
     }, (e) => { clearTimeout(timer); dbErr(e); state.listsLoaded = true; onListsChanged(); });
@@ -714,7 +639,7 @@ function subscribeLists() {
       onListsChanged();
     }, dbErr);
   } else {
-    state.meetings = Object.values(P.local.index).sort((a, b) => b.updatedAt - a.updatedAt);
+    state.meetings = shown(Object.values(P.local.index)).sort((a, b) => b.updatedAt - a.updatedAt);
     state.todos = Object.values(P.local.todos);
     state.listsLoaded = true;
     onListsChanged();
@@ -739,7 +664,7 @@ async function saveMeeting(m = state.cur) {
     P.local.meetings[m.id] = data;
     P.local.index[m.id] = idx;
     localSave();
-    state.meetings = Object.values(P.local.index).sort((a, b) => b.updatedAt - a.updatedAt);
+    state.meetings = shown(Object.values(P.local.index)).sort((a, b) => b.updatedAt - a.updatedAt);
     onListsChanged();
   }
 }
@@ -803,7 +728,7 @@ async function deleteMeeting(id) {
   } else {
     delete P.local.meetings[id]; delete P.local.index[id]; delete P.local.parts[id];
     localSave();
-    state.meetings = Object.values(P.local.index).sort((a, b) => b.updatedAt - a.updatedAt);
+    state.meetings = shown(Object.values(P.local.index)).sort((a, b) => b.updatedAt - a.updatedAt);
   }
   if (state.cur && state.cur.id === id) { state.cur = null; resetLiveRuntime(); }
   onListsChanged();
@@ -832,6 +757,126 @@ async function removeTodo(id) {
     onListsChanged();
   }
 }
+/* ---------- every note in one file: a backup, or the way to move them somewhere else ----------
+   The file holds every meeting with its transcript, and every follow-up. Bringing one in adds what isn't
+   here yet and replaces a meeting only with a newer copy of itself, so doing it twice changes nothing. */
+const NOTES_KIND = "allknowing-notes";
+const okId = (id) => typeof id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(id);
+async function allIndex() {
+  if (P.mode === "db") { const snap = await P.idxCol.get(); return snap.docs.map((d) => d.data()).filter(Boolean); }
+  return Object.values(P.local.index);
+}
+async function allTodos() {
+  if (P.mode === "db") { const snap = await P.todoCol.get(); return snap.docs.map((d) => d.data()).filter(Boolean); }
+  return Object.values(P.local.todos);
+}
+async function exportNotes() {
+  await flushSaves();
+  const meetings = [];
+  let todos;
+  try {
+    const index = await allIndex();
+    todos = await allTodos();
+    for (const it of index) {
+      const m = it && okId(it.id) ? await loadMeeting(it.id) : null;
+      if (m) meetings.push(m);
+    }
+  } catch (e) { dbErr(e); toast("Couldn't read every meeting just now, so nothing was saved. Try again in a moment.", "bad", 7000); return; }
+  const data = { kind: NOTES_KIND, version: 1, exportedAt: Date.now(), from: savedWhere(), meetings, todos, settings: clone(state.settings) };
+  await saveFile(`AllKnowing notes ${localISODate()}.json`, JSON.stringify(data));
+}
+function notesFrom(data) {
+  const d = obj(data);
+  if (d.kind !== NOTES_KIND || !Array.isArray(d.meetings)) return null;
+  return {
+    meetings: d.meetings.filter((m) => m && typeof m === "object" && okId(m.id)),
+    todos: arr(d.todos, 50000).filter((t) => t && typeof t === "object" && okId(t.id)),
+    from: str(d.from, 80), at: Number(d.exportedAt) || 0,
+  };
+}
+// Writes a meeting exactly as it came (its own dates included), transcript and all.
+async function writeMeetingAsIs(m0) {
+  const m = normalizeMeeting(clone(m0));
+  const parts = [];
+  for (let p = 0; p * PART_SIZE < m.segs.length; p++) parts.push(m.segs.slice(p * PART_SIZE, (p + 1) * PART_SIZE));
+  m.partCount = parts.length;
+  m.chars = txChars(m);
+  const data = meetingDocData(m), idx = indexData(m);
+  const pid = (p) => "p" + String(p).padStart(3, "0");
+  if (P.mode === "db") {
+    const ref = P.mtgCol.doc(m.id);
+    const old = await ref.collection("parts").get();
+    for (const d of old.docs) if (!(Number(d.id.slice(1)) < parts.length)) await serial(ref.collection("parts").doc(d.id).path, () => ref.collection("parts").doc(d.id).delete());
+    for (let p = 0; p < parts.length; p++) { const pr = ref.collection("parts").doc(pid(p)); await serial(pr.path, () => pr.set({ segs: parts[p] })); }
+    await serial(ref.path, () => ref.set(data));
+    const ir = P.idxCol.doc(m.id);
+    await serial(ir.path, () => ir.set(idx));
+  } else {
+    P.local.meetings[m.id] = data;
+    P.local.index[m.id] = idx;
+    P.local.parts[m.id] = Object.fromEntries(parts.map((segs, p) => [pid(p), segs]));
+  }
+}
+async function readNotesFile(file) {
+  let data = null;
+  try { data = JSON.parse(await file.text()); } catch { /* not JSON */ }
+  const notes = notesFrom(data);
+  if (!notes) { toast(`${file.name} isn't an AllKnowing notes file. To add a transcript, use Import.`, "warn", 7000); return; }
+  askImportNotes(notes, file.name);
+}
+function askImportNotes(notes, name) {
+  if (isListening()) { toast("Stop listening before bringing in notes.", "warn"); return; }
+  const games = notes.meetings.filter((m) => m.mode === "werewolf").length;
+  const n = notes.meetings.length - games;
+  const meta = [notes.from.replace(/^Saved /, "saved "), notes.at ? fmtDate(notes.at) : ""].filter(Boolean).join(", ");
+  const status = h("p", { class: "status-line" });
+  const go2 = h("button", { type: "button", class: "btn primary" }, "Bring them in");
+  const md2 = modal("Bring in notes?", h("div", { class: "stack" },
+    h("p", null, `${name} has ${plural(n, "meeting")} and ${plural(notes.todos.length, "follow-up")}${meta ? ` (${meta})` : ""}.`),
+    h("p", { class: "muted small-text" }, `Meetings already here stay as they are, unless the file has a newer copy.${games === 1 ? " 1 old 狼人杀 game comes along too but stays hidden." : games ? ` ${games} old 狼人杀 games come along too but stay hidden.` : ""}`),
+    status), [h("button", { type: "button", class: "btn", onclick: () => md2.close() }, "Cancel"), go2]);
+  go2.addEventListener("click", async () => {
+    go2.disabled = true;
+    status.className = "status-line busy";
+    let added = 0, kept = 0, todos = 0;
+    try {
+      await flushSaves();
+      const have = new Map((await allIndex()).map((x) => [x.id, x]));
+      for (const m of notes.meetings) {
+        const old = have.get(m.id);
+        if (old && (Number(old.updatedAt) || 0) >= (Number(m.updatedAt) || 0)) { kept++; continue; }
+        status.textContent = `Bringing in ${added + kept + 1} of ${notes.meetings.length}…`;
+        await writeMeetingAsIs(m);
+        added++;
+        if (state.cur && state.cur.id === m.id) { state.cur = await loadMeeting(m.id); resetLiveRuntime(); }
+      }
+      const haveTodos = new Map((await allTodos()).map((t) => [t.id, t]));
+      for (const t of notes.todos) {
+        const old = haveTodos.get(t.id);
+        if (old && (Number(old.updatedAt) || 0) >= (Number(t.updatedAt) || 0)) continue;
+        if (P.mode === "db") { const ref = P.todoCol.doc(t.id); await serial(ref.path, () => ref.set(clone(t))); }
+        else P.local.todos[t.id] = clone(t);
+        todos++;
+      }
+    } catch (e) {
+      dbErr(e);
+      status.className = "status-line bad";
+      status.textContent = `Stopped after ${plural(added, "meeting")}. Try again: what's already in won't be brought in twice.`;
+      go2.disabled = false;
+      return;
+    } finally {
+      if (P.mode !== "db") {
+        localSave();
+        state.meetings = shown(Object.values(P.local.index)).sort((a, b) => b.updatedAt - a.updatedAt);
+        state.todos = Object.values(P.local.todos);
+        onListsChanged();
+      }
+    }
+    md2.close();
+    renderCurrentBox();
+    toast(added || todos ? `Brought in ${plural(added, "meeting")} and ${plural(todos, "follow-up")}.${kept ? ` ${kept} ${kept === 1 ? "was" : "were"} already here.` : ""}` : "Everything in that file is already here.", "good", 6000);
+  });
+}
 setInterval(() => {
   if (!state.cur) return;
   if (state.dirtySegs) saveSegs().then(() => { if (state.dirtyMeeting) saveMeeting(); });
@@ -843,29 +888,21 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 function normalizeMeeting(m) {
   m.prep = { when: "", attendees: "", goal: "", background: "", lang: "match", files: [], ...obj(m.prep) };
   m.prep.files = arr(m.prep.files, 10);
-  m.game = { players: 12, boardId: BOARDS[0].id, board: BOARDS[0].label, custom: "", seat: 1, role: ROLES[0], private: "", tableLang: "zh", out: [], ...obj(m.game) };
-  m.game.out = arr(m.game.out, 30).map(Number).filter((n) => n > 0);
   m.segs = Array.isArray(m.segs) ? m.segs : [];
   m.mode = m.mode === "werewolf" ? "werewolf" : "meeting";
   m.status = m.status || "prep";
   return m;
 }
-const titleOf = (m) => m.title || (m.mode === "werewolf" ? "狼人杀 game" : "Untitled meeting");
+const titleOf = (m) => m.title || "Untitled meeting";
 const routeFor = (m) => (m.status === "done" ? "after" : m.status === "live" ? "live" : "prep");
 function resetLiveRuntime() {
   const m = state.cur;
   state.speaker = "";
-  state.tr = m && m.mode === "werewolf" ? trackerAt(m, m.segs.length, { speaking: 0, next: 0, dir: 1 }) : newTracker();
   state.voiceBase = 0;
   state.curVoice = 0;
   state.vOrd = new Map();
   if (m) for (const s of m.segs) if (s.v > 0) voiceOrd(s.v);
-  state.closeSeg = false;
   state.lastHeardAt = 0;
-  state.uttOpen = false;
-  state.myTurnAt = 0;
-  state.turnUpdateDue = false;
-  state.lastSpeech = null;
   state.openSegId = null;
   state.partial = "";
   state.lastAnalysisAt = 0;
@@ -874,16 +911,15 @@ function resetLiveRuntime() {
   state.dirtyFrom = Infinity;
   state.dirtySegs = false;
   state.segEls = new Map();
-  state.markOut = false;
   state.listenNote = "";
   state.prepImages = [];
   state.aiStatus = null;
 }
-function newMeeting(mode) {
+function newMeeting() {
   if (isListening()) { toast("Stop listening before starting something new.", "warn"); return; }
   flushSaves();
   const now = Date.now();
-  const m = normalizeMeeting({ id: uid(), mode, title: mode === "werewolf" ? `狼人杀 ${new Date().toLocaleDateString()}` : "", createdAt: now, updatedAt: now, status: "prep", segs: [] });
+  const m = normalizeMeeting({ id: uid(), mode: "meeting", title: "", createdAt: now, updatedAt: now, status: "prep", segs: [] });
   state.cur = m;
   resetLiveRuntime();
   saveMeeting(m);
@@ -939,7 +975,7 @@ function renderCurrentBox() {
   const m = state.cur;
   if (!m) return;
   box.append(
-    h("span", { class: "mode-badge" + (m.mode === "werewolf" ? " ww" : "") }, m.mode === "werewolf" ? "狼人杀" : "Meeting"),
+    h("span", { class: "mode-badge" }, "Meeting"),
     h("span", { class: "current-title", title: titleOf(m) }, titleOf(m)),
   );
   if (isListening()) box.append(h("span", { class: "pill on" }, h("span", { class: "dot" }), "Listening"));
@@ -948,8 +984,7 @@ function renderCurrentBox() {
 /* ---------- empty states and shared bits ---------- */
 function startButtons() {
   return h("div", { class: "row" },
-    h("button", { type: "button", class: "btn primary", onclick: () => newMeeting("meeting") }, "New meeting"),
-    h("button", { type: "button", class: "btn", onclick: () => newMeeting("werewolf") }, "New 狼人杀 game"),
+    h("button", { type: "button", class: "btn primary", onclick: () => newMeeting() }, "New meeting"),
     h("button", { type: "button", class: "btn", onclick: () => go("import") }, "Import a transcript"));
 }
 function emptyView(text) { return h("div", { class: "card stack" }, h("p", { class: "muted" }, text), startButtons()); }
@@ -985,24 +1020,30 @@ function renderVisual(v, label) {
 }
 
 /* ---------- home ---------- */
+// Where the meetings are kept, for the line under "Recent" (the web app says when that's your Mac mini).
+function savedWhere() {
+  const where = window.claude && window.claude.savedWhere;
+  if (typeof where === "string" && where) return where;
+  return P.mode === "db" ? "Saved to your claude.ai account" : "Saved in this browser only";
+}
 function renderHome() {
   const v = $("#view-home");
   v.replaceChildren();
   v.append(h("div", { class: "hero" },
     h("div", null,
-      h("h1", null, "Meetings and games"),
+      h("h1", null, "Meetings"),
       h("p", null, "Give it the background and get a plan. During the meeting it listens, tells you what's going on and what to say next. Afterwards you get minutes, follow-ups and calendar holds. Recorded somewhere else? Import the transcript.")),
     startButtons()));
 
-  const recent = h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", null, "Recent"), h("span", { class: "muted small-text" }, P.mode === "db" ? "Saved to your claude.ai account" : "Saved in this browser only")));
+  const recent = h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", null, "Recent"), h("span", { class: "muted small-text" }, savedWhere())));
   if (!state.listsLoaded) recent.append(h("p", { class: "empty" }, "Loading your meetings…"));
-  else if (!state.meetings.length) recent.append(h("p", { class: "empty" }, "Nothing yet. Start a meeting or a 狼人杀 game above."));
+  else if (!state.meetings.length) recent.append(h("p", { class: "empty" }, "Nothing yet. Start a meeting above, or import a transcript."));
   else {
     const list = h("div");
     for (const m of state.meetings.slice(0, 40)) {
       list.append(h("div", { class: "mrow" },
-        h("span", { class: "mode-badge" + (m.mode === "werewolf" ? " ww" : "") }, m.mode === "werewolf" ? "狼人杀" : "Meeting"),
-        h("button", { type: "button", class: "mtitle", onclick: () => openMeeting(m.id) }, m.title || (m.mode === "werewolf" ? "狼人杀 game" : "Untitled meeting")),
+        h("span", { class: "mode-badge" }, "Meeting"),
+        h("button", { type: "button", class: "mtitle", onclick: () => openMeeting(m.id) }, m.title || "Untitled meeting"),
         h("span", { class: "mstatus" }, `${m.status === "done" ? "Done" : m.status === "live" ? "Started" : "Preparing"} · ${fmtDate(m.startedAt || m.createdAt)}`),
         h("button", { type: "button", class: "btn small ghost", "aria-label": "Delete " + (m.title || "meeting"), onclick: () => confirmDelete(m) }, "Delete")));
     }
@@ -1043,7 +1084,16 @@ function renderSettingsCard() {
       h("div", { class: "two" },
         h("div", { class: "field" }, h("label", { for: "setTier" }, "Live updates"), selectEl("setTier", [["default", "Thorough (better reads)"], ["quick", "Fast (lighter on usage)"]], s.liveTier, set("liveTier"))),
         h("div", { class: "field" }, h("label", { for: "setEvery" }, "Auto-update at most every"), selectEl("setEvery", [["45", "45 seconds"], ["60", "1 minute"], ["120", "2 minutes"], ["300", "5 minutes"]], String(s.autoEvery), (v2) => set("autoEvery")(Number(v2))))),
-      h("label", { class: "check" }, h("input", { type: "checkbox", checked: s.zhMinutes !== false, onchange: (e) => set("zhMinutes")(e.target.checked) }), "Add a 繁體中文 version to meeting minutes")));
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: s.zhMinutes !== false, onchange: (e) => set("zhMinutes")(e.target.checked) }), "Add a 繁體中文 version to meeting minutes"),
+      notesField()));
+}
+function notesField() {
+  const pick = h("input", { type: "file", accept: ".json,application/json", style: "display:none", onchange: (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) readNotesFile(f); } });
+  return h("div", { class: "field" }, h("span", { class: "label" }, "Your notes"),
+    h("div", { class: "row" },
+      h("button", { type: "button", class: "btn small", onclick: exportNotes }, "Download all notes"),
+      h("button", { type: "button", class: "btn small", onclick: () => pick.click() }, "Bring in notes"), pick),
+    h("span", { class: "hint" }, "One file with every meeting, transcript and follow-up. Keep it as a backup, or bring it into AllKnowing somewhere else, like your Mac mini."));
 }
 
 /* ---------- prepare ---------- */
@@ -1052,15 +1102,13 @@ function renderPrep() {
   const v = $("#view-prep");
   v.replaceChildren();
   const m = state.cur;
-  if (!m) { v.append(emptyView("Start a meeting or a game to prepare for it.")); return; }
-  const form = m.mode === "werewolf" ? gameForm(m) : meetingForm(m);
+  if (!m) { v.append(emptyView("Start a meeting to prepare for it.")); return; }
+  const form = meetingForm(m);
   const planCard = h("div", { class: "card" },
-    h("div", { class: "card-head" }, h("h2", null, m.mode === "werewolf" ? "Your strategy" : "Your plan"), m.plan ? copyBtn(planToText(m), "Copy plan") : null),
+    h("div", { class: "card-head" }, h("h2", null, "Your plan"), m.plan ? copyBtn(planToText(m), "Copy plan") : null),
     h("div", { id: "planStatus", class: "status-line" }),
-    m.plan ? (m.mode === "werewolf" ? renderGamePlan(m.plan) : renderMeetingPlan(m.plan))
-      : h("p", { class: "empty" }, m.mode === "werewolf"
-        ? "Your strategy appears here: what your role must do, a first-day speech, when to reveal, night moves, tells to watch and traps to avoid."
-        : "Your plan appears here: objective, agenda, key messages, questions to ask, questions they'll ask with answers, numbers to have ready, red lines and an opening line."));
+    m.plan ? renderMeetingPlan(m.plan)
+      : h("p", { class: "empty" }, "Your plan appears here: objective, agenda, key messages, questions to ask, questions they'll ask with answers, numbers to have ready, red lines and an opening line."));
   v.append(h("div", { class: "prep-grid" }, form, planCard));
 }
 function meetingForm(m) {
@@ -1113,37 +1161,6 @@ async function addFiles(files) {
   }
   renderPrep();
 }
-function gameForm(m) {
-  const g = m.game;
-  const customField = h("div", { class: "field", id: "customBoard", hidden: g.boardId !== "custom" },
-    h("label", { for: "gCustom" }, "Describe the board"),
-    bindField(h("input", { id: "gCustom", value: g.custom, placeholder: "e.g. 10人 · 3狼 预言家 女巫 守卫 4民" }), (val) => { g.custom = val; }));
-  return h("div", { class: "card form" },
-    h("div", { class: "card-head" }, h("h2", null, "狼人杀 setup")),
-    h("div", { class: "field" }, h("label", { for: "gTitle" }, "Game"), bindField(h("input", { id: "gTitle", value: m.title }), (val) => { m.title = val; renderCurrentBox(); })),
-    h("div", { class: "field" }, h("label", { for: "gBoard" }, "Board"),
-      selectEl("gBoard", BOARDS.map((b) => [b.id, b.label]), g.boardId, (val) => {
-        const b = BOARDS.find((x) => x.id === val) || BOARDS[0];
-        g.boardId = b.id; g.board = b.label;
-        if (b.players) { g.players = b.players; const pi = $("#gPlayers"); if (pi) pi.value = String(b.players); }
-        $("#customBoard").hidden = b.id !== "custom";
-        state.dirtyMeeting = true;
-      })),
-    customField,
-    h("div", { class: "three" },
-      h("div", { class: "field" }, h("label", { for: "gPlayers" }, "Players"),
-        bindField(h("input", { id: "gPlayers", type: "number", min: "4", max: "20", value: String(g.players) }), (val) => { g.players = clampNum(val, 4, 20); })),
-      h("div", { class: "field" }, h("label", { for: "gSeat" }, "My seat"),
-        bindField(h("input", { id: "gSeat", type: "number", min: "1", max: "20", value: String(g.seat) }), (val) => { g.seat = clampNum(val, 1, 20); })),
-      h("div", { class: "field" }, h("label", { for: "gLang" }, "Table speaks"), selectEl("gLang", TABLE_LANGS, g.tableLang, (val) => { g.tableLang = val; state.dirtyMeeting = true; }))),
-    h("div", { class: "field" }, h("label", { for: "gRole" }, "My role"), selectEl("gRole", ROLES.map((r) => [r, r]), g.role, (val) => { g.role = val; state.dirtyMeeting = true; })),
-    h("div", { class: "field" }, h("label", { for: "gPriv" }, "What only I know"),
-      bindField(h("textarea", { id: "gPriv", rows: "3", style: "min-height:76px", placeholder: "Wolf teammates, check results, potions used… e.g. 队友 3号 8号 / 昨晚查验5号是狼" }, g.private), (val) => { g.private = val; }),
-      h("span", { class: "hint" }, "Update this during the game too. Only you see it.")),
-    h("div", { class: "row" },
-      h("button", { type: "button", class: "btn primary", id: "planBtn", onclick: generatePlan }, m.plan ? "Rewrite my strategy" : "Write my strategy"),
-      h("button", { type: "button", class: "btn", onclick: () => go("live") }, "Go to the game")));
-}
 function secList(title, items, ordered) {
   if (!items || !items.length) return null;
   return h("div", { class: "plan-sec" }, h("h3", null, title), h(ordered ? "ol" : "ul", { class: "plain-list" }, items.map((x) => h("li", { html: inline(x) }))));
@@ -1163,19 +1180,8 @@ function renderMeetingPlan(p) {
     secList("Red lines", p.red_lines),
     p.people.length ? h("div", { class: "plan-sec" }, h("h3", null, "People"), h("ul", { class: "plain-list" }, p.people.map((x) => h("li", null, h("strong", null, x.name), " · ", x.angle)))) : null);
 }
-function renderGamePlan(p) {
-  return h("div", { class: "plan" },
-    p.role_goal ? h("div", { class: "plan-sec" }, h("h3", null, "Your job"), h("p", { class: "plan-hero" }, p.role_goal)) : null,
-    p.day1_speech ? h("div", { class: "plan-sec" }, h("div", { class: "row space" }, h("h3", null, "First-day speech"), copyBtn(p.day1_speech)), h("p", { class: "quote" }, p.day1_speech)) : null,
-    p.reveal ? h("div", { class: "plan-sec" }, h("h3", null, "Revealing your role"), h("p", null, p.reveal)) : null,
-    p.night_policy ? h("div", { class: "plan-sec" }, h("h3", null, "At night"), h("p", null, p.night_policy)) : null,
-    secList("Watch for", p.watch_for),
-    secList("Traps to avoid", p.traps),
-    secList("Tips for this board", p.tips));
-}
 function planToText(m) {
   const p = m.plan || {};
-  if (m.mode === "werewolf") return [p.role_goal, p.day1_speech && "First-day speech:\n" + p.day1_speech, p.reveal && "Reveal: " + p.reveal, p.night_policy && "Night: " + p.night_policy, ...(p.watch_for || []).map((x) => "Watch: " + x), ...(p.traps || []).map((x) => "Avoid: " + x)].filter(Boolean).join("\n\n");
   return [
     p.objective && "Objective: " + p.objective, p.opening && "Open with: " + p.opening,
     p.agenda && p.agenda.length && "Agenda:\n" + p.agenda.map((a) => `- ${a.item}${a.minutes ? ` (${a.minutes} min)` : ""}`).join("\n"),
@@ -1298,21 +1304,6 @@ function txLines(m, maxBytes) {
 }
 // Said to Claude when the transcript carries voice numbers.
 const VOICE_NOTE = "vN in a tag is the voice the speech service heard for that line. The same number is nearly always the same person from start to finish, and different numbers are usually different people, though the service sometimes gives one person two numbers or lets two people share one.";
-// 狼人杀 transcript for Claude: line numbers, pauses, and where each speaker tag came from.
-function gameTxLines(m, maxBytes, ids = true) {
-  const lines = m.segs.map((s, i) => {
-    const head = `${ids ? "L" + i + " " : ""}[${fmtClock(s.t)}]`;
-    if (s.kind === "event") return `${head} — ${s.text} —`;
-    if (s.kind === "note") return `${head} (note) ${s.text}`;
-    const how = s.by === "cue" ? "heard" : s.by === "order" ? "order" : s.by === "voice" ? "voice" : s.by === "ai" ? "ai" + (s.c || 50) : "sure";
-    const v = s.v > 0 ? " v" + s.v : "";
-    return `${head} ${s.g >= 2 ? `(pause ${s.g}s) ` : ""}${s.sp ? `[${s.sp} ${how}${v}]` : `[??${v}]`} ${s.text}`;
-  });
-  return tailByBytes(lines.join("\n"), maxBytes);
-}
-const TAG_KEY = "Each spoken line is `[time] (pause Ns) [who how] text`. `who` is #seat or 法官 (the moderator). `how` says where the tag came from: `sure` = set by the user; `heard` = a clear cue on or just before the line (the moderator called that seat, or the speaker said 我是5号); `order` = only assumed: the same speaker carrying on, or the next seat in speaking order after the last one finished; `ai70` = AllKnowing's own earlier call and how sure it was; `[??]` = unknown. `(pause Ns)` is the silence before the line. Lines between dashes are phase changes; (note) lines are the user's notes.";
-const tagKey = (m) => (hasVoices(m) ? `${TAG_KEY} \`voice\` = this line's voice was matched to a seat it had been tagged as before. ${VOICE_NOTE}` : TAG_KEY);
-const liveGameShape = (m) => (hasVoices(m) ? LIVE_GAME_SHAPE.replace('"turn":', '"voices": [{"voice": 3, "seat": 5, "sure": 80}],\n  "turn":') : LIVE_GAME_SHAPE);
 const liveMeetingShape = (m) => (hasVoices(m) ? LIVE_MEETING_SHAPE.replace(/\n}$/, ',\n  "voices": [{"voice": 3, "name": "who this voice is", "sure": 80}]\n}') : LIVE_MEETING_SHAPE);
 function meetingContext(m, includePlan = true) {
   const p = m.prep;
@@ -1328,21 +1319,6 @@ function meetingContext(m, includePlan = true) {
   const files = p.files.filter((f) => f.text);
   if (files.length) lines.push("", "ATTACHED NOTES:", ...files.map((f) => `--- ${f.name} ---\n${headByBytes(f.text, 9000)}`));
   if (includePlan && m.plan) lines.push("", "PREP PLAN (JSON):", headByBytes(JSON.stringify(m.plan), 6000));
-  return lines.join("\n");
-}
-function gameContext(m, includePlan = true) {
-  const g = m.game;
-  const out = g.out.slice().sort((a, b) => a - b);
-  const lines = [
-    "GAME: 狼人杀 (Werewolf, a social deduction game)",
-    `Players: ${g.players} (seats 1-${g.players})`,
-    `Board: ${g.boardId === "custom" ? g.custom || "custom" : g.board}`,
-    `The user is seat #${g.seat}. Their role: ${g.role}.`,
-    g.private ? `Private information only the user knows: ${g.private}` : "Private information: none given.",
-    out.length ? `Seats the user has marked out of the game: ${out.map((s) => "#" + s).join(", ")}` : "",
-    `Language at the table: ${tableLangName(g.tableLang)}`,
-  ].filter(Boolean);
-  if (includePlan && m.plan) lines.push("", "PREP STRATEGY (JSON):", headByBytes(JSON.stringify(m.plan), 4000));
   return lines.join("\n");
 }
 function promptLiveMeeting(m) {
@@ -1370,39 +1346,6 @@ function promptLiveMeeting(m) {
     `- ${langLine()} (say_next lines follow the meeting's language.)`,
   ].join("\n");
 }
-function promptLiveGame(m) {
-  const g = m.game;
-  const voices = hasVoices(m);
-  return [
-    `You are AllKnowing, an expert 狼人杀 player coaching the user (seat #${g.seat}, ${g.role}) during a live game. Only the user sees this, so reason openly, including about their private information.`,
-    "", gameContext(m), "",
-    "YOUR PREVIOUS PICTURE (JSON; keep what is still true, correct what changed):",
-    m.live ? headByBytes(JSON.stringify(m.live), 9000) : "none yet",
-    "",
-    `GAME TRANSCRIPT. One microphone hears the whole table. This is live speech-to-text: expect misheard words, and it ${voices ? "tells voices apart (v1, v2…) but does not know which seat each voice is" : "does not know who is speaking"}. Newest lines are last, and each line starts with its number (L12).`,
-    tagKey(m),
-    m.segs.length ? gameTxLines(m, LIVE_TRANSCRIPT_BYTES) : "(nobody has spoken yet: give opening guidance from the setup)",
-    "",
-    state.lastSpeech && m.startedAt ? `SPEECH YOU WROTE FOR THE USER AT [${fmtClock((state.lastSpeech.at - m.startedAt) / 1000)}] (transcript lines after that time that match it are the user, #${g.seat}, reading it out):\n${headByBytes(stripMd(state.lastSpeech.text), 1500)}\n` : "",
-    "Reply with only a JSON object in exactly this shape:",
-    liveGameShape(m),
-    "Rules:",
-    `- speakers: first work out who said each line. Give one entry for every line tagged [??] or \`order\` (nobody has checked those yet; if there are more than 40, do the newest 40), plus any \`heard\`${voices ? ", `voice`" : ""} or \`ai\` line you now believe is wrong. Leave \`sure\` lines alone. seat is 1-${g.players} for a player, 0 for the moderator, -1 if you really can't tell; sure is 0-100.`,
-    `  Evidence, strongest first: the moderator's calls and announcements; self-references (我是5号, 我这个预言家昨晚验了8号) and claims only one seat has made; how later speakers refer back (刚才5号说, 我上家, 前置位); the speaking order (one seat at a time from the seat the moderator started with, each speech usually ending with 过, seats that are out are skipped, same direction for the whole round); pauses (a few seconds of silence often means the next speaker); whether the content fits what that seat said before; and lines matching a speech you wrote for the user, which are the user (#${g.seat}) talking. The moderator runs the night (请闭眼, 请睁眼, 你要查验谁), announces deaths and votes, and calls speakers. If two speakers got run into one line, tag it with whoever says most of it.`,
-    ...(voices ? [`- voices: for each voice number, the seat it belongs to (0 for the moderator) once the lines make that clear; sure is 0-100. Leave out voices you can't place yet. Treat the voice numbers as strong evidence for speakers: lines in one voice are one person unless what is said plainly shows otherwise, and one seat may have two voice numbers.`] : []),
-    "- turn: who is speaking at the end of the transcript (0 = the moderator or nobody, -1 = unknown), who speaks next, and whether seat numbers are going up or down this round.",
-    "- Base everything else on your corrected attribution, not on the raw tags. Where it is still unclear who said something, treat it as weak evidence and say so in the note.",
-    `- players: one entry for every seat from 1 to ${g.players}. For the user's own seat use read "me". Work from what is said and logged: deaths, claims, counter-claims, check results, who defends or attacks whom, vote patterns, speaking-order logic and contradictions.`,
-    "- confidence: 0-100 for how sure each read is.",
-    "- guess and note: for every seat but the user's, the role you think they really have and the main reason in under 25 words: what they claimed, checked, defended, attacked or voted, and what doesn't add up.",
-    "- If the user is on the wolf team, help the wolves win: suggest believable speeches, never expose teammates, and say who to push. If the user is on the good side, find the wolves and protect key roles.",
-    `- say_next: 1-2 options. Each line is a complete speech the user can read out, 4-8 sentences, in ${tableLangName(g.tableLang)}.`,
-    "- vote: the seat to vote out now, or 0 if there is no vote yet or no good target.",
-    "- night: what to do tonight with the user's role (check, save, poison, guard or kill target), or empty if it doesn't apply.",
-    "- visual: a headline, 2-4 conclusions and exactly 3 cards (for example claims and facts, suspects, plan). Wrap seats and key facts in **double asterisks**.",
-    `- ${langLine()} (say_next lines follow the table's language.)`,
-  ].join("\n");
-}
 function promptSayMeeting(m) {
   const name = myName();
   const l = m.live || {};
@@ -1420,23 +1363,6 @@ function promptSayMeeting(m) {
     `Keep it short; ${name} will glance at it mid-conversation.`,
   ].join("\n");
 }
-function promptSayGame(m) {
-  const g = m.game;
-  const l = m.live || {};
-  return [
-    `You are AllKnowing, an expert 狼人杀 coach. It is the user's turn to speak: seat #${g.seat}, ${g.role}.`,
-    "", gameContext(m), "",
-    "LATEST PICTURE (JSON):", m.live ? headByBytes(JSON.stringify({ phase: l.phase, situation: l.situation, players: l.players, events: l.events, vote: l.vote }), 6000) : "none yet",
-    "", "MOST RECENT PART OF THE GAME TRANSCRIPT (newest last). One microphone hears the whole table, so some speaker tags are guesses.", tagKey(m),
-    m.segs.length ? gameTxLines(m, 12000, false) : "(nothing yet)",
-    "",
-    `Write in ${tableLangName(g.tableLang)}, in exactly this format and nothing else:`,
-    "**发言 Speech:** a complete speech to read out, 5-8 sentences: stance, who to suspect and trust with reasons, and who to vote.",
-    "**Don't reveal:** one line.",
-    "**If challenged:** one line to answer back.",
-    "If the user is a wolf, the speech must sound like a good player and protect teammates.",
-  ].join("\n");
-}
 function promptPrepMeeting(m) {
   const name = myName();
   const imgNote = state.prepImages.length ? `\n${state.prepImages.length} image(s) are attached: screenshots or photos ${name} added as background. Read them as part of the background.` : "";
@@ -1451,19 +1377,6 @@ function promptPrepMeeting(m) {
     "- numbers: facts and figures from the background worth having ready; empty if none.",
     "- people: one entry per attendee you can say something useful about.",
     `- ${langLine()}`,
-  ].join("\n");
-}
-function promptPrepGame(m) {
-  const g = m.game;
-  return [
-    "You are an expert 狼人杀 coach preparing the user before a game.",
-    "", gameContext(m, false), "",
-    "Reply with only a JSON object in exactly this shape:",
-    PREP_GAME_SHAPE,
-    "Rules:",
-    `- day1_speech: a ready-to-say first-day speech in ${tableLangName(g.tableLang)}, 4-7 sentences, fitting the user's role and seat.`,
-    "- Be specific to this board, seat and role.",
-    `- ${langLine()} (day1_speech follows the table's language.)`,
   ].join("\n");
 }
 function promptMinutes(m) {
@@ -1490,20 +1403,6 @@ function promptMinutes(m) {
     zh ? "- zh_hant: the summary, key points, decisions and actions in Traditional Chinese (繁體中文)." : "",
   ].filter(Boolean).join("\n");
 }
-function promptRecapGame(m) {
-  return [
-    "Write a short recap of this 狼人杀 game for the user, as a coach would.",
-    "", gameContext(m), "",
-    m.live ? "LAST LIVE PICTURE (JSON):\n" + headByBytes(JSON.stringify(m.live), 8000) + "\n" : "",
-    "GAME TRANSCRIPT:",
-    m.segs.length ? txLines(m, MINUTES_TRANSCRIPT_BYTES) : "(no transcript)",
-    "",
-    "Reply with only a JSON object in exactly this shape:",
-    RECAP_SHAPE,
-    `- ${langLine()}`,
-  ].join("\n");
-}
-
 function normVisual(v) {
   v = obj(v);
   return {
@@ -1523,27 +1422,6 @@ function normMeetingLive(d) {
     visual: normVisual(d.visual), say_next: normSay(d.say_next), watch_out: strArr(d.watch_out, 4),
   };
 }
-function normGameLive(d, m) {
-  d = obj(d);
-  const n = m.game.players, mySeat = Number(m.game.seat);
-  const bySeat = new Map();
-  for (const p0 of arr(d.players, 30)) {
-    const p = obj(p0), s = Number(p.seat);
-    if (s >= 1 && s <= n) bySeat.set(s, { seat: s, status: str(p.status, 12), claim: str(p.claim, 30), guess: str(p.guess, 24), read: ["wolf", "good", "unsure", "me"].includes(p.read) ? p.read : "unsure", confidence: clampNum(p.confidence, 0, 100), note: str(p.note, 240) });
-  }
-  const players = Array.from({ length: n }, (_, i) => bySeat.get(i + 1) || { seat: i + 1, status: "unknown", claim: "", guess: "", read: "unsure", confidence: 0, note: "" });
-  if (players[mySeat - 1]) players[mySeat - 1].read = "me";
-  const vs = Number(obj(d.vote).seat);
-  const turn = obj(d.turn);
-  const seatOr = (x) => { const v = Number(x); return Number.isInteger(v) && v >= 0 && v <= n ? v : -1; };
-  return {
-    turn: { speaking: seatOr(turn.speaking), next: seatOr(turn.next), direction: ["up", "down"].includes(turn.direction) ? turn.direction : "unknown" },
-    phase: str(d.phase, 60), situation: str(d.situation, 1200), players, events: strArr(d.events, 30, 200),
-    visual: normVisual(d.visual), say_next: normSay(d.say_next, 2),
-    vote: { seat: vs >= 1 && vs <= n ? vs : 0, why: str(obj(d.vote).why, 400) },
-    night: str(d.night, 400), watch_out: strArr(d.watch_out, 4),
-  };
-}
 function normMeetingPlan(d) {
   d = obj(d);
   return {
@@ -1555,10 +1433,6 @@ function normMeetingPlan(d) {
     opening: str(d.opening, 600),
     people: arr(d.people, 12).map((x) => ({ name: str(obj(x).name, 80), angle: str(obj(x).angle, 300) })).filter((x) => x.name),
   };
-}
-function normGamePlan(d) {
-  d = obj(d);
-  return { title: str(d.title, 120), role_goal: str(d.role_goal, 500), day1_speech: str(d.day1_speech, 1500), reveal: str(d.reveal, 600), night_policy: str(d.night_policy, 600), watch_for: strArr(d.watch_for, 8), traps: strArr(d.traps, 8), tips: strArr(d.tips, 8) };
 }
 function normMinutes(d) {
   d = obj(d);
@@ -1572,11 +1446,6 @@ function normMinutes(d) {
     zh_hant: z.summary || arr(z.key_points).length ? { summary: str(z.summary, 3000), key_points: strArr(z.key_points, 20, 500), decisions: strArr(z.decisions, 20, 500), actions: acts(z.actions) } : null,
   };
 }
-function normRecap(d) {
-  d = obj(d);
-  return { title: str(d.title, 160), result: str(d.result, 300), summary: str(d.summary, 3000), timeline: strArr(d.timeline, 40, 300), key_moments: strArr(d.key_moments, 10, 400), my_play: strArr(d.my_play, 10, 400), next_time: strArr(d.next_time, 10, 400), visual: normVisual(d.visual) };
-}
-
 function aiReady() {
   if (!cap.sample) { toast("Claude isn't available here. Open AllKnowing in claude.ai.", "warn", 6000); return false; }
   if (state.aiBlocked) { toast("Claude is switched off for AllKnowing. Allow it in this page's Permissions menu, then reload.", "warn", 7000); return false; }
@@ -1617,18 +1486,13 @@ async function runLiveUpdate(reason = "manual") {
   const ctl = new AbortController();
   state.aiCtl = ctl;
   const charsAtStart = txChars(m);
-  const linesAtStart = m.segs.length;
-  const floorAtStart = { ...state.tr };
-  state.turnUpdateDue = false;
   try {
-    const prompt = m.mode === "werewolf" ? promptLiveGame(m) : promptLiveMeeting(m);
-    const data = await cap.sample.json(prompt, { modelTier: state.settings.liveTier === "quick" ? "quick" : "default", signal: ctl.signal, cache: false });
+    const data = await cap.sample.json(promptLiveMeeting(m), { modelTier: state.settings.liveTier === "quick" ? "quick" : "default", signal: ctl.signal, cache: false });
     if (state.cur !== m) return;
-    m.live = m.mode === "werewolf" ? normGameLive(data, m) : normMeetingLive(data);
-    if (m.mode === "werewolf" && autoSeatOn()) applySpeakers(m, data, linesAtStart, floorAtStart);
-    else if (m.mode === "meeting") applyVoiceNames(m, data);
+    m.live = normMeetingLive(data);
+    applyVoiceNames(m, data);
     m.liveAt = Date.now();
-    if (m.mode === "meeting" && !m.title && m.live.title) { m.title = m.live.title; renderCurrentBox(); }
+    if (!m.title && m.live.title) { m.title = m.live.title; renderCurrentBox(); }
     state.lastAnalysisAt = Date.now();
     state.lastAnalyzedChars = charsAtStart;
     state.dirtyMeeting = true;
@@ -1639,21 +1503,16 @@ async function runLiveUpdate(reason = "manual") {
   } finally {
     state.aiBusy = false;
     state.aiCtl = null;
-    if (state.turnUpdateDue && state.cur === m) setTimeout(() => maybeAutoUpdate(true, true), 0);
   }
 }
-// Runs an update when enough has been said. In 狼人杀 a finished speech (turnEnd) is a good moment, so it can come sooner.
-function maybeAutoUpdate(turnEnd = false, heldBack = false) {
+// Runs an update when enough has been said since the last one.
+function maybeAutoUpdate() {
   const m = state.cur;
-  if (!m || !state.settings.auto || state.aiBlocked || !cap.sample) return;
-  const ww = m.mode === "werewolf";
-  if (state.aiBusy) { if (turnEnd && ww) state.turnUpdateDue = true; return; }
+  if (!m || !state.settings.auto || state.aiBlocked || !cap.sample || state.aiBusy) return;
   if (Date.now() < state.autoPausedUntil) return;
   const every = Math.max(30, Number(state.settings.autoEvery) || 60) * 1000;
   const fresh = txChars(m) - state.lastAnalyzedChars;
-  const since = Date.now() - state.lastAnalysisAt;
-  if (fresh >= (ww ? 150 : AUTO_MIN_CHARS) && since >= every) runLiveUpdate("auto");
-  else if (turnEnd && ww && fresh >= 40 && (heldBack || since >= 20000)) runLiveUpdate("auto");
+  if (fresh >= AUTO_MIN_CHARS && Date.now() - state.lastAnalysisAt >= every) runLiveUpdate("auto");
 }
 async function askSayNow() {
   const m = state.cur;
@@ -1665,10 +1524,8 @@ async function askSayNow() {
   renderSayNow();
   renderSay();
   try {
-    const prompt = m.mode === "werewolf" ? promptSayGame(m) : promptSayMeeting(m);
-    const res = await cap.sample(prompt, { modelTier: "quick", signal: ctl.signal, cache: false, onText: ({ text }) => { if (state.sayCtl === ctl) { state.sayNow.text = text; renderSayNow(); } } });
+    const res = await cap.sample(promptSayMeeting(m), { modelTier: "quick", signal: ctl.signal, cache: false, onText: ({ text }) => { if (state.sayCtl === ctl) { state.sayNow.text = text; renderSayNow(); } } });
     if (state.sayCtl === ctl) state.sayNow.text = res.text;
-    if (state.cur === m && m.mode === "werewolf" && res.text) state.lastSpeech = { text: res.text, at: Date.now() };
   } catch (e) {
     if (state.sayCtl === ctl && e && e.text) state.sayNow.text = e.text;
     aiErr(e, "say");
@@ -1680,24 +1537,24 @@ function setPlanStatus(text, kind = "") { const el = $("#planStatus"); if (el) {
 async function generatePlan() {
   const m = state.cur;
   if (!m || !aiReady()) return;
-  if (m.mode === "meeting" && !m.prep.background.trim() && !m.prep.goal.trim() && !m.prep.files.length && !state.prepImages.length) {
+  if (!m.prep.background.trim() && !m.prep.goal.trim() && !m.prep.files.length && !state.prepImages.length) {
     toast("Add some background or your goal first, so the plan isn't generic.", "warn");
     return;
   }
   const btn = $("#planBtn");
   if (btn) btn.disabled = true;
-  setPlanStatus(m.mode === "werewolf" ? "Working out your strategy… usually 20-60 seconds." : "Writing your plan… usually 20-60 seconds.", "busy");
+  setPlanStatus("Writing your plan… usually 20-60 seconds.", "busy");
   try {
     const opts = { modelTier: "default", cache: false };
-    if (m.mode === "meeting" && state.prepImages.length && state.imagesOK) opts.images = state.prepImages.map((x) => x.blob);
-    const data = await cap.sample.json(m.mode === "werewolf" ? promptPrepGame(m) : promptPrepMeeting(m), opts);
+    if (state.prepImages.length && state.imagesOK) opts.images = state.prepImages.map((x) => x.blob);
+    const data = await cap.sample.json(promptPrepMeeting(m), opts);
     if (state.cur !== m) return;
-    m.plan = m.mode === "werewolf" ? normGamePlan(data) : normMeetingPlan(data);
+    m.plan = normMeetingPlan(data);
     if (!m.title && m.plan.title) m.title = m.plan.title;
     await saveMeeting(m);
     renderCurrentBox();
     if (state.route === "prep") renderPrep();
-    toast(m.mode === "werewolf" ? "Strategy ready." : "Plan ready.", "good");
+    toast("Plan ready.", "good");
   } catch (e) {
     aiErr(e, "plan");
     setPlanStatus("");
@@ -1714,24 +1571,23 @@ async function generateMinutes() {
   state.minutesBusy = true;
   if (isListening()) await stopListening();
   await flushSaves();
-  setMinutesStatus(m.mode === "werewolf" ? "Writing the game recap… usually 30-90 seconds." : "Writing the minutes… usually 30-90 seconds.", "busy");
+  setMinutesStatus("Writing the minutes… usually 30-90 seconds.", "busy");
   const btn = $("#minBtn");
   if (btn) btn.disabled = true;
   try {
-    const data = await cap.sample.json(m.mode === "werewolf" ? promptRecapGame(m) : promptMinutes(m), { modelTier: "default", cache: false });
+    const data = await cap.sample.json(promptMinutes(m), { modelTier: "default", cache: false });
     if (state.cur !== m) return;
-    m.minutes = m.mode === "werewolf" ? normRecap(data) : normMinutes(data);
+    m.minutes = normMinutes(data);
     m.minutesAt = Date.now();
     m.status = "done";
     m.endedAt = m.endedAt || Date.now();
     if (!m.title && m.minutes.title) m.title = m.minutes.title;
     await saveMeeting(m);
-    let added = 0;
-    if (m.mode === "meeting") added = await addActionsAsTodos(m);
+    const added = await addActionsAsTodos(m);
     state.minutesBusy = false;
     renderCurrentBox();
     if (state.route === "after") renderAfter();
-    toast(added ? `Minutes ready. ${added} follow-up${added === 1 ? "" : "s"} added.` : m.mode === "werewolf" ? "Recap ready." : "Minutes ready.", "good");
+    toast(added ? `Minutes ready. ${added} follow-up${added === 1 ? "" : "s"} added.` : "Minutes ready.", "good");
   } catch (e) {
     aiErr(e, "minutes");
     setMinutesStatus("");
@@ -1754,15 +1610,13 @@ function bindDictation() {
   try {
     d.onPartial(({ text, voice }) => {
       if (text) {
-        const now = Date.now();
-        if (!state.uttOpen) { state.uttOpen = true; state.uttGap = state.lastHeardAt ? (now - state.lastHeardAt) / 1000 : 0; }
-        state.lastHeardAt = now;
+        state.lastHeardAt = Date.now();
         if (voices) noteVoice(voiceId(voice));
       }
       state.partial = text || "";
       renderPartial();
     });
-    d.onFinal(({ text, voice, gap }) => (voices ? onFinalText(text, voice, gap) : onFinalText(text)));
+    d.onFinal(({ text, voice }) => (voices ? onFinalText(text, voice) : onFinalText(text)));
     d.onState(({ state: s, reason, userMessage }) => onDictState(s, reason, voices ? userMessage : ""));
   } catch (e) { console.warn(e); }
 }
@@ -1788,7 +1642,6 @@ function onDictState(s, reason, message) {
   } else if (s === "listening") {
     state.listenNote = "";
     state.lastHeardAt = 0;
-    state.uttOpen = false;
   }
   renderListenUI();
   renderChips();
@@ -1817,55 +1670,46 @@ function startListening() {
     if (code === "stopped") return;
     state.listenNote = (e && e.userMessage) || LISTEN_MSG[code] || (code === "no_gesture" ? "Tap Start again." : `Couldn't start listening (${code}).`);
     if (code === "unavailable" && lang && !state.settings.dictLang) {
-      // The language taken from the game or meeting setup isn't served here: fall back next time.
+      // The language taken from the meeting setup isn't served here: fall back next time.
       state.skipSetupLang = true;
-      state.listenNote = "Listening in this table's language isn't available here. Tap Start again to listen in your browser's language, or pick a language from the list.";
+      state.listenNote = "Listening in this meeting's language isn't available here. Tap Start again to listen in your browser's language, or pick a language from the list.";
     }
     renderListenUI();
   });
 }
-// The listening language: the one picked in the list, or on Auto the language set for this game or meeting.
+// The listening language: the one picked in the list, or on Auto the language set for this meeting.
 function listenLang(m) {
   if (state.settings.dictLang) return state.settings.dictLang;
   if (state.skipSetupLang) return "";
-  const code = m.mode === "werewolf" ? m.game.tableLang : m.prep.lang;
+  const code = m.prep.lang;
   return { zh: "zh", yue: "zh-HK", en: "en" }[code] || "";
 }
 async function stopListening() {
   try { if (cap.dict) await cap.dict.stop(); } catch { /* ignore */ }
   await flushSaves();
 }
-function onFinalText(text, voice, heardGap) {
+function onFinalText(text, voice) {
   const m = state.cur;
   if (!m || !text) return;
   const now = Date.now();
   if (!m.startedAt) { m.startedAt = now; m.status = "live"; state.dirtyMeeting = true; }
-  // Silence before this phrase, in seconds: measured in the audio when the listener can (heardGap),
-  // otherwise from when the first live guess of the phrase arrived.
-  const gap = typeof heardGap === "number" && heardGap >= 0 ? heardGap : state.uttOpen ? state.uttGap : state.lastHeardAt ? (now - state.lastHeardAt) / 1000 : 0;
-  state.uttOpen = false;
   state.lastHeardAt = now;
   const v = voiceId(voice);
   noteVoice(v);
-  if (m.mode === "werewolf") {
-    const pieces = autoSeatOn() ? splitHeard(text, m, state.tr) : [text];
-    pieces.forEach((piece, i) => addHeard(m, piece, i === 0 ? gap : 0, now, v));
+  // With voices, the line belongs to whoever that voice has been named as; otherwise to the chip that's on.
+  const sp = v ? voiceName(m, v) : state.speaker || "";
+  const last = m.segs[m.segs.length - 1];
+  let seg = last && last.id === state.openSegId ? last : null;
+  if (seg && seg.kind === "speech" && seg.sp === sp && (seg.v || 0) === v && now - state.lastFinalAt < 15000 && seg.text.length < 700) {
+    seg.text += text;
   } else {
-    // With voices, the line belongs to whoever that voice has been named as; otherwise to the chip that's on.
-    const sp = v ? voiceName(m, v) : state.speaker || "";
-    const last = m.segs[m.segs.length - 1];
-    let seg = last && last.id === state.openSegId ? last : null;
-    if (seg && seg.kind === "speech" && seg.sp === sp && (seg.v || 0) === v && now - state.lastFinalAt < 15000 && seg.text.length < 700) {
-      seg.text += text;
-    } else {
-      seg = { id: uid(), t: (now - m.startedAt) / 1000, sp, text: text.replace(/^\s+/, ""), kind: "speech" };
-      if (v) seg.v = v;
-      m.segs.push(seg);
-      state.openSegId = seg.id;
-    }
-    markSegDirty(m.segs.length - 1);
-    renderSegUpdate(seg);
+    seg = { id: uid(), t: (now - m.startedAt) / 1000, sp, text: text.replace(/^\s+/, ""), kind: "speech" };
+    if (v) seg.v = v;
+    m.segs.push(seg);
+    state.openSegId = seg.id;
   }
+  markSegDirty(m.segs.length - 1);
+  renderSegUpdate(seg);
   state.lastFinalAt = now;
   state.partial = "";
   renderPartial();
@@ -1890,8 +1734,7 @@ const voiceId = (voice) => { const n = Number(voice); return Number.isInteger(n)
 function noteVoice(v) {
   if (!v || v === state.curVoice) return;
   state.curVoice = v;
-  const m = state.cur;
-  if (m && m.mode !== "werewolf") renderChips();
+  if (state.cur) renderChips();
 }
 // "Voice 2" for a voice nobody has named, numbered in the order they were first heard.
 function voiceOrd(v) {
@@ -1928,498 +1771,13 @@ function applyVoiceNames(m, data) {
   }
   if (any) renderChips();
 }
-// Words the speech service should expect: names for a meeting, the game's own vocabulary for 狼人杀.
-const GAME_TERMS = ["狼人杀", "狼人", "预言家", "女巫", "猎人", "守卫", "白痴", "平民", "村民", "狼王", "白狼王", "骑士", "丘比特", "法官", "警长", "警徽", "警徽流", "上警", "警上", "警下", "退水", "金水", "银水", "查杀", "悍跳", "对跳", "跳预言家", "归票", "放逐", "平安夜", "自爆", "刀口", "狼刀", "首刀", "毒药", "解药", "遗言", "好人", "铁狼", "认狼", "站边", "抿身份", "发言", "过", "闭眼", "睁眼", "天黑请闭眼", "天亮了"];
+// Words the speech service should expect: the people's names, and the meeting's topic.
 function listenHints(m) {
-  if (m.mode === "werewolf") {
-    const seats = Array.from({ length: m.game.players }, (_, i) => `${i + 1}号`);
-    return { topic: `A table of ${m.game.players} people playing 狼人杀 (Werewolf). Players are called by seat number (1号, 2号…) and often end a speech with 过. A moderator (法官) runs the game.`, terms: GAME_TERMS.concat(seats) };
-  }
   const names = speakerOptions(m).map((o) => o.label).filter((x) => x !== "Me" && x !== "Other");
   if (state.settings.myName) names.push(state.settings.myName);
   return { topic: [m.title, m.prep.goal].filter(Boolean).join(". ").slice(0, 300), terms: names };
 }
 
-/* ---------- 狼人杀: who is speaking ----------
-   One microphone hears the whole table, and speech-to-text gives words, not voices.
-   So AllKnowing works out the speaker itself, in two layers:
-   1. At once, from what's heard: the moderator calling a seat (请5号发言), a player saying
-      我是5号, a speech ending with 过 (the next seat in order is up), and pauses.
-   2. On every update, Claude re-reads the lines and corrects who said what from the content,
-      the speaking order and how others refer back (applySpeakers).
-   Each spoken line keeps how its tag was set in `by`: "cue" (heard), "order" (assumed from
-   the order), "ai" (Claude, with confidence `c`), "tap" (the user) or "voice" (see below).
-   `g` is the pause before it.
-   3. Where AllKnowing does its own listening (the web app), each phrase also comes with the voice
-      that said it: `v` on the line. A voice is evidence, not a fact, because the speech service
-      can give one person two numbers or let two people share one. Every tag set by a cue, the
-      order, Claude or the user is a vote for "this voice is that seat" (voiceMap); a voice with a
-      clear winner tags its own lines and moves the floor without waiting for a cue.
-   The tracker `tr` is where the floor is: `seat` (0 nobody, -1 the moderator by tap), how it got
-   there (`by`), whether that seat has finished (`ended`) or was just called (`fresh`), the
-   direction (`dir`), the floor-holder's voice (`v`) and a new voice waiting to be believed (`pv`). */
-const autoSeatOn = () => state.settings.autoSeat !== false;
-const newTracker = (dir = 1) => ({ seat: 0, by: "", ended: false, fresh: false, dir: dir < 0 ? -1 : 1, v: 0, pv: 0 });
-const PAUSE_SPLIT = 1.5;
-const PHASE_NIGHT = "天黑 · Night";
-const PHASE_DAY = "天亮 · Day";
-const PHASE_VOTE = "投票 · Vote";
-const PHASE_LABELS = new Set([PHASE_NIGHT, PHASE_DAY, PHASE_VOTE]);
-// Cue matching works on Simplified characters; this covers the Traditional ones the patterns use.
-const T2S = { 請: "请", 號: "号", 發: "发", 過: "过", 閉: "闭", 睜: "睁", 開: "开", 從: "从", 輪: "轮", 遺: "遗", 順: "顺", 時: "时", 針: "针", 麥: "麦", 結: "结", 畢: "毕", 樣: "样", 現: "现", 進: "进", 選: "选", 競: "竞", 長: "长", 舉: "举", 這: "这", 說: "说", 講: "讲", 個: "个", 邊: "边", 裡: "里", 兩: "两", 殺: "杀", 驗: "验", 護: "护", 認: "认", 戲: "戏", 東: "东", 麼: "么", 來: "来", 續: "续", 後: "后", 當: "当", 獲: "获", 勝: "胜", 陣: "阵", 營: "营", 傷: "伤", 遊: "游", 確: "确", 夥: "伙", 險: "险", 嗎: "吗", 啟: "启", 繼: "继", 討: "讨", 論: "论" };
-const simp = (s) => String(s || "").replace(/[㐀-鿿]/g, (ch) => T2S[ch] || ch);
-const CN_DIGITS = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
-function seatNumber(raw) {
-  const s = String(raw || "");
-  if (/^\d+$/.test(s)) return Number(s);
-  const mt = s.match(/^([一二两三四五六七八九])?十([一二三四五六七八九])?$/);
-  if (mt) return (mt[1] ? CN_DIGITS[mt[1]] : 1) * 10 + (mt[2] ? CN_DIGITS[mt[2]] : 0);
-  return CN_DIGITS[s] || 0;
-}
-const SEAT_N = "(\\d{1,2}|[一二两三四五六七八九十]{1,3})";
-const HAO = "\\s*号\\s*(?:玩家|位)?";
-const FILL = "[\\s，,。.!！?？…、嗯呃啊哦噢好的那个]{0,8}";
-const STOP = "(?=[，,。.！!?？、；;\\s]|$)";
-// The moderator giving a seat the floor: 请5号发言, 轮到5号, 5号玩家请发言, 从5号开始发言, 请5号发表遗言
-const CALL_RES = [
-  new RegExp(`(?:请|有请|轮到|下面|接下来|首先|然后|现在|下一位|下一个)[是由请到，,：:\\s]{0,3}${SEAT_N}${HAO}\\s*(?:开始|继续|上警|警上)?\\s*(?:发言|讲话|发表遗言|留遗言|说遗言|遗言)`),
-  new RegExp(`(?:下一位|下一个)[是，,：:\\s]{0,3}${SEAT_N}${HAO}`),
-  new RegExp(`${SEAT_N}${HAO}\\s*(?:请|可以)\\s*(?:开始)?\\s*(?:发言|发表遗言|留遗言)`),
-  new RegExp(`${SEAT_N}${HAO}\\s*开始\\s*发言(?!的)`),
-  new RegExp(`${SEAT_N}${HAO}\\s*(?:被放逐|被票出|被投出|出局|死亡|倒牌).{0,8}遗言`),
-  new RegExp(`(?:从|由)\\s*${SEAT_N}${HAO}\\s*(?:这里|这边)?\\s*开始(?:(?:顺序|逆序|顺时针|逆时针|依次|轮流)?\\s*发言|\\s*[，,。.!！]?\\s*(?:顺|逆|$))`),
-  /(?:seat|number|player)\s*(\d{1,2})\s*,?\s*(?:please\s+)?(?:speak|go ahead|your turn|you're up)/i,
-];
-// A player opening their own speech: 我是5号, 5号发言
-const SELF_RES = [
-  new RegExp(`^${FILL}(?:我是|这里是|这边是)\\s*${SEAT_N}${HAO}(?=[，,。.！!?？、；;\\s]|$|我)`),
-  new RegExp(`^${FILL}(?:我\\s*)?${SEAT_N}${HAO}\\s*发言${STOP}`),
-  /^\W{0,3}(?:I'm|I am|this is)\s+(?:seat|number|player)\s*(\d{1,2})\b/i,
-];
-const VOTE_SRC = "(?:开始|现在|进行)投票|投票开始|请.{0,4}投票(?!给)";
-// Things only the moderator says
-const JUDGE_STRONG = new RegExp(`天黑请闭眼|请闭眼|请睁眼|天亮了${STOP}|请.{0,8}举手|${VOTE_SRC}|游戏开始|游戏结束|你要(?:查验|毒|救|守护|杀)|请确认(?:身份|同伴)`);
-// Things the moderator says, but a player might repeat mid-speech: only counted when nobody has the floor
-const JUDGE_WEAK = /昨[晚夜].{0,10}(?:死亡|死了|倒牌|出局|被杀)|昨[晚夜]是?平安夜|竞选警长|警长竞选|(?:好人|狼人)(?:阵营)?(?:获胜|胜利)|[0-9一二两三四五六七八九十]{1,3}\s*号(?:玩家)?\s*(?:被放逐|被票出|被投出|出局|死亡|倒牌)/;
-const NEXT_RE = new RegExp(`^${FILL}(?:下一位|下一个|下面一位|next)(?:玩家| player)?${STOP}`, "i");
-const PHASE_RES = [[/天黑请闭眼/, PHASE_NIGHT], [/天亮了|天亮请睁眼/, PHASE_DAY], [new RegExp(VOTE_SRC), PHASE_VOTE]];
-// The end of a speech: 过, 我过了, 过麦, 发言完毕, pass
-const END_RES = [
-  /(?:^|[，,。.!！?？;；、\s])[好那我就先了嗯呃]{0,4}过(?:了|麦|吧|啊|哈)?[。.!！~～\s]*$/,
-  /(?:我就?先?过了?|过麦)[。.!！~～\s]*$/,
-  /(?:发言完毕|发言结束|发言完了|[说讲]完了|就这样|就这些|就这么多|完毕)[吧了啊]?[。.!！~～\s]*$/,
-  /(?:^|[\s.,!?])(?:pass|i pass|that's all|that's it|i'm done)[.!\s]*$/i,
-];
-const endsTurn = (text) => { const t = simp(text).trim(); return END_RES.some((re) => re.test(t)); };
-const NO_CUE = { call: 0, self: 0, judge: false, next: false, phase: "", dir: 0, end: false, any: false };
-function seatCue(text, m, tr) {
-  const t = simp(text).trim();
-  const n = m.game.players;
-  const seatIn = (mt) => { const x = mt ? seatNumber(mt[1]) : 0; return x >= 1 && x <= n ? x : 0; };
-  const cue = { ...NO_CUE };
-  const short = t.length <= 40;
-  if (short) {
-    for (const re of CALL_RES) {
-      cue.call = seatIn(t.match(re));
-      if (cue.call) break;
-    }
-  }
-  if (!cue.call) {
-    for (const re of SELF_RES) {
-      cue.self = seatIn(t.match(re));
-      if (cue.self) break;
-    }
-  }
-  const hasFloor = !!tr && tr.seat > 0 && !tr.ended;
-  if (cue.call) cue.judge = true;
-  else if (!cue.self) {
-    if (JUDGE_STRONG.test(t) || (!hasFloor && JUDGE_WEAK.test(t))) cue.judge = true;
-    else if (short && NEXT_RE.test(t)) { cue.judge = true; cue.next = true; }
-  }
-  if (cue.judge) {
-    for (const [re, label] of PHASE_RES) {
-      if (re.test(t)) { cue.phase = label; break; }
-    }
-    if (/逆序|倒序|逆时针/.test(t)) cue.dir = -1;
-    else if (/顺序|正序|顺时针/.test(t)) cue.dir = 1;
-  } else cue.end = END_RES.some((re) => re.test(t));
-  cue.any = !!(cue.call || cue.self || cue.judge);
-  return cue;
-}
-function outSeats(m) {
-  const out = new Set(m.game.out);
-  for (const p of (m.live && m.live.players) || []) if (p.status === "out") out.add(p.seat);
-  return out;
-}
-// The next seat in speaking order, skipping seats that are out.
-function nextSeat(m, seat, dir) {
-  const n = m.game.players;
-  const out = outSeats(m);
-  let cur = seat;
-  for (let i = 0; i < n; i++) {
-    cur = ((cur - 1 + (dir < 0 ? -1 : 1) + n) % n) + 1;
-    if (!out.has(cur)) return cur;
-  }
-  return seat;
-}
-// What each voice has turned out to be. Each run of lines with one voice and one tag is a vote, weighted by
-// where the tag came from. A voice is believed (`sp`) once one answer clearly leads, and trusted over the
-// speaking order (`strong`) once it leads by a lot.
-const VOICE_VOTE = { tap: 6, cue: 3, order: 1 };
-function voiceMap(m) {
-  const votes = new Map();
-  const add = (v, sp, w) => {
-    if (!(v > 0) || !sp || !(w > 0)) return;
-    let row = votes.get(v);
-    if (!row) { row = new Map(); votes.set(v, row); }
-    row.set(sp, (row.get(sp) || 0) + w);
-  };
-  let last = null;
-  for (const s of m.segs) {
-    if (s.kind !== "speech") continue;
-    const same = last && last.v === s.v && last.sp === s.sp && (last.by || "") === (s.by || "");
-    last = s;
-    if (same || !(s.v > 0) || !s.sp) continue;
-    add(s.v, s.sp, s.by === "ai" ? ((s.c || 0) >= 70 ? 2 : (s.c || 0) >= 50 ? 1 : 0) : s.by ? VOICE_VOTE[s.by] || 0 : 6);
-  }
-  // Claude's own answer to "whose voice is this" (m.voices)
-  for (const [k, e] of Object.entries(obj(m.voices))) add(Number(k), obj(e).sp, obj(e).by === "tap" ? 8 : (obj(e).c || 0) >= 80 ? 4 : (obj(e).c || 0) >= 60 ? 2 : 0);
-  const out = new Map();
-  for (const [v, row] of votes) {
-    let sp = "";
-    let top = 0;
-    let next = 0;
-    for (const [k, w] of row) {
-      if (w > top) { next = top; top = w; sp = k; }
-      else if (w > next) next = w;
-    }
-    if (top >= 3 && top >= 2 * next) out.set(v, { sp, strong: top >= 6 && top >= 3 * next });
-  }
-  return out;
-}
-// A few words thrown in while someone else has the floor (对, 哈哈, 等一下) don't move the floor.
-const shortSay = (text) => ((String(text).match(/[㐀-鿿]/g) || []).length + (String(text).match(/[A-Za-z0-9']+/g) || []).length) <= 6;
-// One phrase from the table: who said it, and where the floor is afterwards. Pure, so it can be re-run.
-// `v` is the voice that said it (0 when the listener gives words only), `vm` is voiceMap(m) and `gap` the pause before it.
-function seatStep(tr0, text, m, v = 0, vm = null, gap = 0) {
-  const tr = { ...tr0 };
-  const cue = seatCue(text, m, tr0);
-  const prev = tr0.seat > 0 ? tr0.seat : 0;
-  let sp = "";
-  let by = "";
-  let started = 0;
-  let adopt = 0;
-  const learnDir = (x) => {
-    if (!prev || x === prev || m.game.players < 3) return;
-    if (x === nextSeat(m, prev, 1)) tr.dir = 1;
-    else if (x === nextSeat(m, prev, -1)) tr.dir = -1;
-  };
-  const take = (seat, how) => Object.assign(tr, { seat, by: how, ended: false, fresh: false, v, pv: 0 });
-  if (cue.call) {
-    sp = "法官";
-    by = "cue";
-    if (cue.call !== prev || tr0.ended) started = cue.call;
-    learnDir(cue.call);
-    Object.assign(tr, { seat: cue.call, by: "cue", ended: false, fresh: true, v: 0, pv: 0 });
-  } else if (cue.self) {
-    sp = "#" + cue.self;
-    by = "cue";
-    if (cue.self !== prev || tr0.ended) started = cue.self;
-    learnDir(cue.self);
-    take(cue.self, "cue");
-  } else if (cue.judge) {
-    sp = "法官";
-    by = "cue";
-    if (cue.next) { if (tr.seat > 0) tr.ended = true; }
-    else if (cue.phase) Object.assign(tr, { seat: 0, by: "", ended: false, fresh: false, v: 0, pv: 0 });
-  } else if (v > 0) {
-    // No cue in the words, but we know which voice it was.
-    const who = vm ? vm.get(v) : null;
-    const known = who && who.sp[0] === "#" ? Number(who.sp.slice(1)) : 0;
-    const floor = tr.seat > 0 ? tr.seat : 0;
-    const short = shortSay(text);
-    if (who && who.sp === "法官") {
-      // The moderator, saying something that isn't one of the known calls. The floor stays where it is.
-      sp = "法官";
-      by = "voice";
-    } else if (known && known === floor) {
-      // The floor-holder carries on, even after 过 if they had more to say.
-      sp = "#" + floor;
-      by = tr.fresh ? "cue" : tr.by === "tap" ? "tap" : "voice";
-      if (tr.ended && !short) tr.ended = false;
-      Object.assign(tr, { fresh: false, v, pv: 0 });
-    } else if (known) {
-      // A voice we know, and it isn't the floor-holder's.
-      sp = "#" + known;
-      by = "voice";
-      if (!floor) { take(known, "voice"); started = known; }
-      else if (short) { /* a few words from the side: the floor stays */ }
-      else if (tr.fresh) {
-        // The moderator just called someone else. Believe the call unless this voice is well established.
-        if (!who.strong) { sp = "#" + floor; by = "cue"; Object.assign(tr, { fresh: false, v, pv: 0 }); }
-      } else if (tr.ended) { learnDir(known); take(known, "voice"); started = known; }
-      else { if (known === nextSeat(m, floor, tr.dir)) started = known; take(known, "voice"); }
-    } else if (floor && tr.fresh) {
-      // The seat that was just called starts.
-      sp = "#" + floor;
-      by = "cue";
-      Object.assign(tr, { fresh: false, v, pv: 0 });
-    } else if (floor && tr.ended) {
-      if (tr.v === v) {
-        // The same voice after 过: a parting word, or they weren't done.
-        sp = "#" + floor;
-        by = tr.by === "tap" ? "tap" : "order";
-        if (!short) tr.ended = false;
-      } else if (!short || !tr.v || cue.end) {
-        // The next seat starts (a lone 过 from a new voice is the next seat passing). A few words this
-        // voice said just before, which nobody could place, are theirs too (`adopt`).
-        adopt = v;
-        take(nextSeat(m, floor, tr.dir), "order");
-        started = tr.seat;
-        sp = "#" + tr.seat;
-        by = "order";
-      }
-    } else if (floor) {
-      if (!tr.v || tr.v === v) {
-        // The floor-holder's voice, or the first voice heard since the floor was set.
-        sp = "#" + floor;
-        by = tr.by === "tap" ? "tap" : "order";
-        Object.assign(tr, { v, pv: 0 });
-      } else if (short) {
-        // A word from a voice we can't place. If it is 过, take it as the floor-holder finishing:
-        // one syllable is too little for the speech service to tell voices apart.
-        if (cue.end) { sp = "#" + floor; by = "order"; }
-      } else if (tr.pv === v || cue.end || gap >= PAUSE_SPLIT) {
-        // A new voice speaking at length after a clear pause, or for the second time, or with a whole
-        // short speech ending in 过: the floor has moved on without a 过 being heard. A phrase that was
-        // waiting on this voice is re-tagged too (`adopt`).
-        if (tr.pv === v) adopt = v;
-        take(nextSeat(m, floor, tr.dir), "order");
-        started = tr.seat;
-        sp = "#" + tr.seat;
-        by = "order";
-      } else tr.pv = v;
-    } else if (tr.seat === -1) {
-      sp = "法官";
-      by = "tap";
-    }
-  } else {
-    if (tr.seat > 0 && tr.ended) {
-      Object.assign(tr, { seat: nextSeat(m, tr.seat, tr.dir), by: "order", ended: false, fresh: false, v: 0, pv: 0 });
-      started = tr.seat;
-    }
-    if (tr.seat > 0) {
-      sp = "#" + tr.seat;
-      by = tr.fresh ? "cue" : tr.by === "tap" ? "tap" : "order";
-      tr.fresh = false;
-    } else if (tr.seat === -1) {
-      sp = "法官";
-      by = "tap";
-    }
-  }
-  if (cue.dir) tr.dir = cue.dir;
-  if (cue.end && sp === "#" + tr.seat) tr.ended = true;
-  return { sp, by, tr, cue, started, adopt };
-}
-// Lines waiting on a new voice (see `adopt`) take the seat that voice has now been given.
-function adoptPending(m, v, upTo, sp, from = 0) {
-  const changed = [];
-  let seen = 0;
-  for (let i = upTo - 1; i >= from && seen < 8; i--) {
-    const s = m.segs[i];
-    if (s.kind !== "speech") continue;
-    seen++;
-    if (s.v === v && !s.sp && !s.by) { s.sp = sp; s.by = "order"; changed.push(i); }
-    else if (s.v === v) break;
-  }
-  return changed;
-}
-// Lines with no tag, or one that was only assumed, take the seat their voice has turned out to be.
-function sweepVoices(m) {
-  const vm = voiceMap(m);
-  const changed = [];
-  m.segs.forEach((s, i) => {
-    if (s.kind !== "speech" || !(s.v > 0) || userSet(s) || s.by === "cue" || (s.by === "ai" && (s.c || 0) >= 60)) return;
-    const who = vm.get(s.v);
-    if (!who || who.sp === s.sp || (s.sp && !who.strong)) return;
-    s.sp = who.sp;
-    s.by = "voice";
-    s.c = 0;
-    changed.push(i);
-  });
-  return changed;
-}
-// Speech-to-text can run two speakers into one phrase. Split it where a sentence is a cue or follows the end of a speech.
-function splitHeard(text, m, tr) {
-  const sents = text.match(/[^。！？!?\n]+[。！？!?\n]*/g);
-  if (!sents || sents.length < 2) return [text];
-  const out = [];
-  let buf = "";
-  let closed = false;
-  for (const s of sents) {
-    const c = seatCue(s, m, tr);
-    if (buf && (closed || c.any)) { out.push(buf); buf = ""; }
-    buf += s;
-    closed = c.end || !!c.call || c.judge;
-  }
-  if (buf) out.push(buf);
-  return out;
-}
-function addHeard(m, text, gap, now, v = 0) {
-  if (!text.trim()) return;
-  if (!m.startedAt) { m.startedAt = now; m.status = "live"; state.dirtyMeeting = true; ensureClock(); }
-  const before = state.tr;
-  let r;
-  if (autoSeatOn()) r = seatStep(before, text, m, v, v ? voiceMap(m) : null, gap);
-  else {
-    const sp = before.seat > 0 ? "#" + before.seat : before.seat === -1 ? "法官" : "";
-    r = { sp, by: sp ? "tap" : "", tr: before, cue: NO_CUE, started: 0, adopt: 0 };
-  }
-  state.tr = r.tr;
-  const c = r.cue;
-  const last = m.segs[m.segs.length - 1];
-  const open = last && last.id === state.openSegId && last.kind === "speech" ? last : null;
-  const fresh = !open || state.closeSeg || c.call || c.self || c.next || open.sp !== r.sp || (open.by || "") !== r.by || (open.v || 0) !== v || gap >= PAUSE_SPLIT || open.text.length >= 300;
-  let seg = open;
-  if (fresh) {
-    seg = { id: uid(), t: (now - m.startedAt) / 1000, sp: r.sp, text: text.replace(/^\s+/, ""), kind: "speech" };
-    if (r.by) seg.by = r.by;
-    if (v) seg.v = v;
-    if (gap >= 1) seg.g = Math.min(99, Math.round(gap));
-    m.segs.push(seg);
-    state.openSegId = seg.id;
-  } else seg.text += text;
-  markSegDirty(m.segs.length - 1);
-  state.closeSeg = !!(c.end || c.call || c.next);
-  renderSegUpdate(seg);
-  if (v && autoSeatOn()) {
-    // What this line settles about a voice can settle earlier lines too.
-    const changed = r.adopt ? adoptPending(m, r.adopt, m.segs.length - 1, r.sp) : [];
-    if (r.by === "cue" || r.by === "tap" || changed.length) changed.push(...sweepVoices(m));
-    showRetagged(m, changed);
-  }
-  if (c.phase) logPhase(m, c.phase);
-  if (r.tr.seat !== before.seat || r.tr.ended !== before.ended) renderChips();
-  const me = Number(m.game.seat);
-  if (r.started === me) myTurn();
-  else if (c.end && r.sp[0] === "#" && nextSeat(m, r.tr.seat, r.tr.dir) === me) myTurn();
-  else if (r.started && nextSeat(m, r.started, r.tr.dir) === me) toast(`You're up after #${r.started}.`);
-  if (c.end || r.started || c.phase) maybeAutoUpdate(true);
-}
-function logPhase(m, label) {
-  const lastEvent = [...m.segs].reverse().find((x) => x.kind === "event" && PHASE_LABELS.has(x.text));
-  const recent = lastEvent && lastEvent.text === label && (Date.now() - m.startedAt) / 1000 - lastEvent.t < 300;
-  if (!recent) addSeg("event", label);
-}
-// The floor has reached the user's seat: have a speech ready.
-function myTurn() {
-  const now = Date.now();
-  if (now - state.myTurnAt < 90000) return;
-  state.myTurnAt = now;
-  if (state.sayCtl || (state.sayNow && now - state.sayNow.at < 45000) || !cap.sample || state.aiBlocked) { toast("Your turn.", "good", 5000); return; }
-  toast("Your turn. Writing your speech…", "good", 5000);
-  askSayNow();
-}
-// Where the floor is after the first `seen` lines, using Claude's view (`ai`) where the lines don't settle it.
-function trackerAt(m, seen, ai) {
-  const valid = (x) => Number.isInteger(x) && x >= 1 && x <= m.game.players;
-  const base = newTracker(ai.dir || (state.tr && state.tr.dir) || 1);
-  const aiSeat = valid(ai.speaking) ? ai.speaking : 0;
-  let phaseAfter = false;
-  let k = Math.min(seen, m.segs.length) - 1;
-  for (; k >= 0; k--) {
-    const x = m.segs[k];
-    if (x.kind === "speech") break;
-    if (x.kind === "event" && PHASE_LABELS.has(x.text)) phaseAfter = true;
-  }
-  const s = k >= 0 ? m.segs[k] : null;
-  if (!s || phaseAfter) return aiSeat ? { ...base, seat: aiSeat, by: "ai" } : base;
-  const seat = s.sp && s.sp[0] === "#" ? Number(s.sp.slice(1)) : 0;
-  if (seat) {
-    if (s.by !== "order" || !aiSeat) return { ...base, seat, by: s.by === "tap" || !s.by ? "tap" : "ai", ended: endsTurn(s.text), v: s.v || 0 };
-    return { ...base, seat: aiSeat, by: "ai", ended: aiSeat === seat && endsTurn(s.text), v: aiSeat === seat ? s.v || 0 : 0 };
-  }
-  if (s.sp === "法官") {
-    const cue = seatCue(s.text, m, base);
-    if (cue.call) return { ...base, seat: cue.call, by: "cue", fresh: true };
-    if (s.by === "tap" || !s.by) return { ...base, seat: -1, by: "tap" };
-  }
-  if (aiSeat) return { ...base, seat: aiSeat, by: "ai" };
-  if (valid(ai.next)) return { ...base, seat: ai.next, by: "ai" };
-  return base;
-}
-const userSet = (s) => s.by === "tap" || (!!s.sp && !s.by);
-// A seat as Claude may write it: 5, "5", "#5", or 0 / "法官" for the moderator.
-const seatFrom = (v) => { const t = String(v ?? "").trim(); return /^(法官|moderator|mod)$/i.test(t) ? 0 : t === "" ? Number.NaN : Number(t.replace(/^#/, "").replace(/号$/, "")); };
-// Claude's answer to "who said each line": apply it, then re-tag what was heard while it was thinking.
-// `seen` is how many lines it was shown, and `floorThen` is where the floor was at that point.
-function applySpeakers(m, data, seen, floorThen) {
-  const n = m.game.players;
-  const changed = new Set();
-  for (const e of arr(obj(data).speakers, 200)) {
-    const o = obj(e);
-    const i = Number(String(o.line ?? "").replace(/^\s*L/i, ""));
-    const s = Number.isInteger(i) && i >= 0 && i < seen ? m.segs[i] : null;
-    if (!s || s.kind !== "speech" || userSet(s)) continue;
-    const seat = seatFrom(o.seat);
-    const sp = seat === 0 ? "法官" : Number.isInteger(seat) && seat >= 1 && seat <= n ? "#" + seat : "";
-    if (!sp) continue;
-    const sure = clampNum(o.sure, 0, 100);
-    if (sp !== s.sp) {
-      const need = s.by === "cue" ? 80 : s.by === "voice" ? 60 : s.by === "order" ? 55 : s.by === "ai" ? 50 : 30;
-      if (sure < need) continue;
-      s.sp = sp;
-    } else if (s.by === "cue") continue;
-    s.by = "ai";
-    s.c = sure;
-    changed.add(i);
-  }
-  // Whose voice is whose, as Claude sees it. It counts as votes (voiceMap), and never overrules the user.
-  const heard = new Set(m.segs.map((s) => s.v).filter((v) => v > 0));
-  for (const e of arr(obj(data).voices, 60)) {
-    const o = obj(e);
-    const v = Number(String(o.voice ?? "").replace(/^\s*v/i, ""));
-    const seat = seatFrom(o.seat);
-    const sp = seat === 0 ? "法官" : Number.isInteger(seat) && seat >= 1 && seat <= n ? "#" + seat : "";
-    const sure = clampNum(o.sure, 0, 100);
-    if (!heard.has(v) || !sp || sure < 60 || obj(obj(m.voices)[v]).by === "tap") continue;
-    m.voices = { ...obj(m.voices), [v]: { sp, by: "ai", c: sure } };
-  }
-  if (heard.size) for (const i of sweepVoices(m)) changed.add(i);
-  const t = obj(obj(data).turn);
-  const before = state.tr;
-  let tr = trackerAt(m, seen, { speaking: seatFrom(t.speaking), next: seatFrom(t.next), dir: t.direction === "down" ? -1 : t.direction === "up" ? 1 : 0 });
-  // Only when Claude sees the floor somewhere else than the page did: re-tag the lines heard since, from Claude's view.
-  if (tr.seat !== 0 && (tr.seat !== floorThen.seat || tr.ended !== floorThen.ended || tr.dir !== floorThen.dir)) {
-    const from = Math.min(seen, m.segs.length);
-    const vm = heard.size ? voiceMap(m) : null;
-    for (let j = from; j < m.segs.length; j++) {
-      const s = m.segs[j];
-      if (s.kind === "event" && PHASE_LABELS.has(s.text)) tr = newTracker(tr.dir);
-      if (s.kind !== "speech") continue;
-      if (userSet(s)) {
-        const seat = s.sp[0] === "#" ? Number(s.sp.slice(1)) : s.sp === "法官" ? -1 : 0;
-        tr = { ...newTracker(tr.dir), seat, by: "tap", ended: seat > 0 && endsTurn(s.text), v: s.v || 0 };
-        continue;
-      }
-      const r = seatStep(tr, s.text, m, s.v || 0, vm, s.g || 0);
-      tr = r.tr;
-      if (r.adopt) for (const i of adoptPending(m, r.adopt, j, r.sp, from)) changed.add(i);
-      if (s.sp !== r.sp || (s.by || "") !== r.by) {
-        s.sp = r.sp;
-        s.by = r.by;
-        s.c = 0;
-        changed.add(j);
-      }
-    }
-    state.tr = tr;
-  }
-  showRetagged(m, changed);
-  renderChips();
-  const me = Number(m.game.seat);
-  const mine = (x) => x.seat === me && !x.ended;
-  if (mine(state.tr) && !mine(before)) myTurn();
-}
 function refreshSegEl(s) {
   const old = state.segEls.get(s.id);
   if (!old) return;
@@ -2434,38 +1792,16 @@ function showRetagged(m, changed) {
   markSegDirty(Math.min(...list));
   for (const i of list) refreshSegEl(m.segs[i]);
 }
-// Who has the floor right now, as a chip key ("#5", "法官" or "").
-function speakingKey(m) {
-  if (m.mode !== "werewolf") return voiceLive(20000) ? voiceName(m, state.curVoice) : state.speaker;
-  const tr = state.tr;
-  if (tr.seat === -1) return "法官";
-  if (tr.seat > 0) return "#" + (tr.ended ? nextSeat(m, tr.seat, tr.dir) : tr.seat);
-  return "";
-}
+// Who has the floor right now, as a chip key: the named voice talking, or the chip the user picked.
+const speakingKey = (m) => (voiceLive(20000) ? voiceName(m, state.curVoice) : state.speaker);
 // A voice has been heard in the last `ms` while listening, so a tap can be about that voice.
 const voiceLive = (ms) => state.curVoice > 0 && isListening() && Date.now() - state.lastHeardAt < ms;
 function setSpeaker(key) {
   const m = state.cur;
   state.openSegId = null;
-  if (m && m.mode === "werewolf") {
-    const seat = key === "法官" ? -1 : Number(String(key).replace("#", "")) || 0;
-    // Tapped while someone is talking: that voice is this seat, and the user's word outweighs everything else.
-    const v = voiceLive(2500) ? state.curVoice : 0;
-    state.tr = { ...newTracker(state.tr.dir), seat, by: seat ? "tap" : "", v };
-    if (v && seat) { m.voices = { ...obj(m.voices), [v]: { sp: key, by: "tap", c: 100 } }; state.dirtyMeeting = true; }
-  } else if (m && voiceLive(20000)) nameVoice(m, state.curVoice, key, "tap", 100);
+  // Tapped while a voice is talking: that voice is this person, from now on and for its earlier lines.
+  if (m && voiceLive(20000)) nameVoice(m, state.curVoice, key, "tap", 100);
   else state.speaker = key;
-  renderChips();
-}
-// Next or previous seat in speaking order, skipping seats that are out.
-function stepSpeaker(step) {
-  const m = state.cur;
-  if (!m || m.mode !== "werewolf") return;
-  const tr = state.tr;
-  const dir = step * tr.dir;
-  const from = tr.seat > 0 ? tr.seat : dir > 0 ? m.game.players : 1;
-  state.openSegId = null;
-  state.tr = { ...newTracker(tr.dir), seat: nextSeat(m, from, dir), by: "tap", v: voiceLive(2500) ? state.curVoice : 0 };
   renderChips();
 }
 function addSeg(kind, text, sp = "") {
@@ -2492,10 +1828,6 @@ function tickClock() {
 
 /* ---------- live view ---------- */
 function speakerOptions(m) {
-  if (m.mode === "werewolf") {
-    const out = new Set(m.game.out);
-    return [{ label: "法官", key: "法官" }].concat(Array.from({ length: m.game.players }, (_, i) => ({ label: "#" + (i + 1), key: "#" + (i + 1), seat: i + 1, me: i + 1 === Number(m.game.seat), out: out.has(i + 1) })));
-  }
   const names = String(m.prep.attendees || "").split(/[,;\n]/).map((s) => s.replace(/<[^>]*>/g, "").replace(/\([^)]*\)/g, "").trim()).filter((s) => s && !/@/.test(s)).slice(0, 12);
   const uniq = Array.from(new Set(names));
   return [{ label: "Me", key: "Me", me: true }].concat(uniq.map((n) => ({ label: n, key: n })), [{ label: "Other", key: "Other" }]);
@@ -2504,52 +1836,25 @@ function renderChips() {
   const box = $("#chips");
   const m = state.cur;
   if (!box || !m) return;
-  const ww = m.mode === "werewolf";
   const byVoice = hearsVoices() && isListening();
-  const label = !ww ? (byVoice ? "AllKnowing tells the voices apart. Tap a name while that person is talking and it remembers whose voice it is." : "Who's speaking? Tap to tag (optional)") : state.markOut ? "Tap a seat to mark it out (or back in)" : autoSeatOn() ? "Speaking now. AllKnowing follows the table by itself; tap a seat only to correct it." : "Who's speaking? Tap the seat";
+  const label = byVoice ? "AllKnowing tells the voices apart. Tap a name while that person is talking and it remembers whose voice it is." : "Who's speaking? Tap to tag (optional)";
   const current = speakingKey(m);
   box.replaceChildren(h("span", { class: "chips-label" }, label));
   for (const o of speakerOptions(m)) {
     box.append(h("button", {
       type: "button",
-      class: "chip" + (o.me ? " me" : "") + (o.out ? " out" : ""),
-      "aria-pressed": String(current === o.key && !state.markOut),
+      class: "chip" + (o.me ? " me" : ""),
+      "aria-pressed": String(current === o.key),
       title: o.me ? "You" : "",
-      onclick: () => {
-        if (m.mode === "werewolf" && state.markOut && o.seat) { toggleOut(o.seat); return; }
-        setSpeaker(current === o.key ? "" : o.key);
-      },
-    }, o.label + (o.me && ww ? " (me)" : "")));
+      onclick: () => setSpeaker(current === o.key ? "" : o.key),
+    }, o.label));
   }
-  markSpeaking();
-}
-// A dot on the seat card of whoever has the floor.
-function markSpeaking() {
-  const m = state.cur;
-  if (!m || m.mode !== "werewolf") return;
-  const key = state.tr.seat > 0 && !state.tr.ended ? String(state.tr.seat) : "";
-  for (const el of $$("#boardBody .seat")) el.classList.toggle("speaking", el.dataset.seat === key);
-}
-function phaseButton(label) {
-  addSeg("event", label);
-  state.tr = newTracker(state.tr.dir);
-  renderChips();
-}
-function toggleOut(seat) {
-  const g = state.cur.game;
-  const i = g.out.indexOf(seat);
-  if (i > -1) { g.out.splice(i, 1); addSeg("event", `#${seat} 回到场上 · back in`); }
-  else { g.out.push(seat); addSeg("event", `#${seat} 出局 · out`); }
-  state.dirtyMeeting = true;
-  renderChips();
-  renderBoard();
 }
 function renderLive() {
   const v = $("#view-live");
   v.replaceChildren();
   const m = state.cur;
-  if (!m) { v.append(emptyView("Start a meeting or a 狼人杀 game first.")); return; }
-  const ww = m.mode === "werewolf";
+  if (!m) { v.append(emptyView("Start a meeting first.")); return; }
 
   const bar = h("div", { class: "live-bar" },
     h("button", { type: "button", id: "listenBtn", class: "btn big primary", onclick: () => (isListening() ? stopListening() : startListening()) }),
@@ -2560,51 +1865,38 @@ function renderLive() {
     h("button", { type: "button", class: "btn", id: "autoBtn", "aria-pressed": String(!!state.settings.auto), title: "Refresh the picture automatically while people talk", onclick: (e) => { state.settings.auto = !state.settings.auto; e.currentTarget.setAttribute("aria-pressed", String(state.settings.auto)); saveSettingsSoon(); toast(state.settings.auto ? "Auto-update on." : "Auto-update off."); } }, "Auto-update"),
     h("button", { type: "button", class: "btn", onclick: () => runLiveUpdate("manual") }, "Update now"),
     h("button", { type: "button", class: "btn primary", onclick: askSayNow }, "What should I say?"),
-    h("button", { type: "button", class: "btn", onclick: endMeeting }, ww ? "End game" : "End meeting"));
+    h("button", { type: "button", class: "btn", onclick: endMeeting }, "End meeting"));
 
-  const tools = ww ? h("div", { class: "row", style: "margin-bottom:8px" },
-    h("button", { type: "button", class: "btn small", onclick: () => phaseButton(PHASE_NIGHT) }, "Night"),
-    h("button", { type: "button", class: "btn small", onclick: () => phaseButton(PHASE_DAY) }, "Day"),
-    h("button", { type: "button", class: "btn small", onclick: () => phaseButton(PHASE_VOTE) }, "Vote"),
-    h("button", { type: "button", class: "btn small", id: "markOutBtn", "aria-pressed": String(state.markOut), onclick: (e) => { state.markOut = !state.markOut; e.currentTarget.setAttribute("aria-pressed", String(state.markOut)); renderChips(); } }, "Mark seats out"),
-    h("span", { class: "spacer" }),
-    h("button", { type: "button", class: "btn small", id: "nextSeatBtn", title: "Move to the next seat in speaking order, if AllKnowing has it wrong (→ key; ← goes back)", onclick: () => stepSpeaker(1) }, "Next seat ▸"),
-    h("button", { type: "button", class: "btn small", id: "autoSeatBtn", "aria-pressed": String(autoSeatOn()), title: "AllKnowing works out who is speaking from the moderator's calls, what people say, the speaking order and pauses", onclick: (e) => { state.settings.autoSeat = !autoSeatOn(); e.currentTarget.setAttribute("aria-pressed", String(state.settings.autoSeat)); saveSettingsSoon(); renderChips(); toast(state.settings.autoSeat ? "AllKnowing works out who's speaking." : "The speaker changes only when you tap a seat."); } }, "Auto speakers")) : null;
-
-  const composerInput = h("input", { id: "composerText", placeholder: ww ? "Type what was said, or a note (e.g. 5号跳预言家 查杀8号)" : "Type what was said, or a note", "aria-label": "Add a line" });
+  const composerInput = h("input", { id: "composerText", placeholder: "Type what was said, or a note", "aria-label": "Add a line" });
   let autoTimer = null;
   const commit = () => {
     const text = composerInput.value.trim();
     if (!text) return;
     const kind = $("#composerKind").value;
-    if (ww && kind === "speech") { state.openSegId = null; addHeard(m, text, 0, Date.now()); }
-    else addSeg(kind, text, kind === "speech" ? state.speaker : "");
+    addSeg(kind, text, kind === "speech" ? state.speaker : "");
     composerInput.value = "";
   };
   composerInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); clearTimeout(autoTimer); commit(); } });
   composerInput.addEventListener("input", () => { if (!$("#autoCommit") || !$("#autoCommit").checked) return; clearTimeout(autoTimer); autoTimer = setTimeout(commit, 2500); });
 
   const txCard = h("div", { class: "card col-transcript" },
-    h("div", { class: "card-head" }, h("h2", null, ww ? "Table talk" : "Transcript"), h("span", { id: "txCount", class: "muted small-text" })),
+    h("div", { class: "card-head" }, h("h2", null, "Transcript"), h("span", { id: "txCount", class: "muted small-text" })),
     h("div", { id: "listenNote" }),
     h("div", { id: "chips", class: "chips" }),
-    tools,
     h("div", { id: "tx", class: "transcript", "aria-live": "off" }),
     h("div", { class: "composer" },
-      h("select", { id: "composerKind", "aria-label": "Line type" }, h("option", { value: "speech" }, "Said"), h("option", { value: "note", selected: ww }, "Note")),
+      h("select", { id: "composerKind", "aria-label": "Line type" }, h("option", { value: "speech" }, "Said"), h("option", { value: "note" }, "Note")),
       composerInput,
       h("button", { type: "button", class: "btn", onclick: commit }, "Add")),
     h("label", { class: "check small-text", style: "margin-top:8px" }, h("input", { type: "checkbox", id: "autoCommit", onchange: (e) => { if (e.target.checked) $("#composerKind").value = "speech"; } }), "Add typed text automatically after a pause (use this with Windows or Mac dictation)"));
 
   const sayCard = h("div", { class: "card say", id: "sayCard" },
-    h("div", { class: "card-head" }, h("h2", null, ww ? "What to say" : "Say next"), h("span", { id: "aiStatus", class: "status-line" })),
+    h("div", { class: "card-head" }, h("h2", null, "Say next"), h("span", { id: "aiStatus", class: "status-line" })),
     h("div", { id: "sayNow" }),
     h("div", { id: "sayBody" }));
-  const sitCard = h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", null, ww ? "The game right now" : "What's going on")), h("div", { id: "sitBody" }));
+  const sitCard = h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", null, "What's going on")), h("div", { id: "sitBody" }));
   const visCard = h("div", { class: "card" }, h("div", { id: "visBody" }));
-  const detail = ww
-    ? h("div", { class: "card col-detail" }, h("div", { class: "card-head" }, h("h2", null, "Seats"), h("span", { class: "muted small-text" }, `You are #${m.game.seat} · ${m.game.role}`)), h("div", { id: "boardBody" }))
-    : h("div", { class: "card col-detail" }, h("div", { class: "card-head" }, h("h2", null, "So far")), h("div", { id: "detailBody" }));
+  const detail = h("div", { class: "card col-detail" }, h("div", { class: "card-head" }, h("h2", null, "So far")), h("div", { id: "detailBody" }));
 
   v.append(bar, h("div", { class: "live-grid" }, txCard, h("div", { class: "stack col-assist" }, sayCard, sitCard, visCard), detail));
   renderListenUI();
@@ -2635,6 +1927,8 @@ function renderListenUI() {
   if (note) {
     note.replaceChildren();
     if (state.listenNote) note.append(h("div", { class: "banner" }, h("span", null, state.listenNote)));
+    // A listener can say up front why it can't listen here (the web app on a link that isn't secure).
+    else if (cap.dict && cap.dict.unavailable) note.append(h("div", { class: "banner" }, h("span", null, cap.dict.unavailable)));
     else if (!cap.dict) note.append(h("div", { class: "banner" }, h("span", null, "Listening needs Chrome or Edge on a computer, or the Claude desktop app. Meanwhile, type below, or turn on “Add typed text automatically” and use your computer's own dictation (Win+H on Windows, press Fn twice on a Mac).")));
   }
 }
@@ -2645,19 +1939,16 @@ function segEl(s) {
     s.kind === "note" ? h("span", { class: "sp" }, "Note") : speakerTag(s),
     h("span", { class: "tx" }, s.text));
 }
-const TAG_WHY = { cue: "Heard: the moderator called this seat, or the speaker said their number", order: "From the speaking order", tap: "Set by you", voice: "Recognised by voice" };
 function speakerTag(s) {
   const m = state.cur;
-  const game = m && m.mode === "werewolf";
-  if (!game && s.v) {
+  if (m && s.v) {
     // A meeting line with a voice: tap the tag to say whose voice it is.
     const known = obj(obj(m.voices)[s.v]);
     return h("button", { type: "button", class: "sp voice" + (s.sp ? "" : " unsure"), title: s.sp ? (known.by === "ai" ? "AllKnowing's guess from what was said. Tap to change." : "Tap to change whose voice this is.") : "A voice nobody has named yet. Tap to name it.", onclick: () => askVoiceName(m, s.v) }, s.sp || "Voice " + voiceOrd(s.v));
   }
-  if (!s.sp) return game && autoSeatOn() ? h("span", { class: "sp unsure", title: "Not sure who said this yet" }, "?") : null;
+  if (!s.sp) return null;
   const unsure = s.by === "ai" && (s.c || 0) < 60;
-  const why = s.by === "ai" ? `AllKnowing's call from what was said (${s.c || 0}% sure)` : TAG_WHY[s.by] || "";
-  return h("span", { class: "sp" + (unsure ? " unsure" : ""), title: game ? why : "" }, s.sp + (unsure ? "?" : ""));
+  return h("span", { class: "sp" + (unsure ? " unsure" : "") }, s.sp + (unsure ? "?" : ""));
 }
 function askVoiceName(m, v) {
   const input = h("input", { placeholder: "Or type a name", "aria-label": "Name", maxlength: "40" });
@@ -2715,7 +2006,7 @@ function renderLivePanels() {
   renderSituation();
   const vb = $("#visBody");
   if (vb) vb.replaceChildren(renderVisual(state.cur && state.cur.live ? state.cur.live.visual : null));
-  if (state.cur && state.cur.mode === "werewolf") renderBoard(); else renderDetail();
+  renderDetail();
 }
 function renderSay() {
   const body = $("#sayBody");
@@ -2731,7 +2022,7 @@ function renderSay() {
         h("div", { class: "row" }, o.why ? h("span", { class: "say-why" }, o.why) : h("span", { class: "say-why" }), copyBtn(o.line))));
     }
   } else if (!state.sayNow) {
-    body.append(h("p", { class: "empty" }, m.mode === "werewolf" ? "Speeches to read out appear here as the game goes. When it's your turn, tap “What should I say?”." : "Suggestions appear here as people talk. Tap “What should I say?” any time you need words."));
+    body.append(h("p", { class: "empty" }, "Suggestions appear here as people talk. Tap “What should I say?” any time you need words."));
   }
 }
 function renderSayNow() {
@@ -2753,8 +2044,8 @@ function renderSituation() {
   if (!c) return;
   c.replaceChildren();
   const l = state.cur && state.cur.live;
-  if (!l) { c.append(h("p", { class: "empty" }, state.cur && state.cur.mode === "werewolf" ? "Once the table starts talking, AllKnowing sums up the game here." : "Once people start talking, AllKnowing describes the meeting and where it stands here.")); return; }
-  const stage = l.stage || l.phase;
+  if (!l) { c.append(h("p", { class: "empty" }, "Once people start talking, AllKnowing describes the meeting and where it stands here.")); return; }
+  const stage = l.stage;
   if (stage) c.append(h("span", { class: "stage" }, stage));
   if (l.situation) c.append(h("p", { class: "situation" }, l.situation));
   if (l.watch_out && l.watch_out.length) c.append(h("ul", { class: "watch" }, l.watch_out.map((w) => h("li", { html: inline(w) }))));
@@ -2775,35 +2066,6 @@ function renderDetail() {
   c.append(...blocks.filter(Boolean));
   if (!c.childNodes.length) c.append(h("p", { class: "empty" }, "Nothing concrete yet."));
 }
-function renderBoard() {
-  const c = $("#boardBody");
-  const m = state.cur;
-  if (!c || !m) return;
-  c.replaceChildren();
-  const g = m.game, l = m.live;
-  const out = new Set(g.out);
-  const seats = h("div", { class: "seats" });
-  for (let i = 1; i <= g.players; i++) {
-    const p = l && l.players ? l.players[i - 1] : null;
-    const me = i === Number(g.seat);
-    const read = me ? "me" : (p && p.read) || "unsure";
-    const isOut = out.has(i) || (p && p.status === "out");
-    const tag = me ? "Me" : read === "wolf" ? "Wolf?" : read === "good" ? "Good?" : "";
-    seats.append(h("div", { class: `seat ${read}${me ? " me" : ""}${isOut ? " out" : ""}`, "data-seat": i, title: p && p.note ? p.note : "" },
-      h("div", { class: "row space" }, h("span", { class: "num" }, "#" + i), h("span", { class: "tag" }, tag)),
-      p && p.claim ? h("span", { class: "claim" }, (me ? "" : "Claims ") + p.claim) : null,
-      !me && p && p.guess ? h("span", { class: "guess" }, "Likely " + p.guess) : null,
-      !me && p && p.confidence ? h("div", { class: "conf", title: `${p.confidence}% sure` }, h("i", { style: `width:${p.confidence}%` })) : null,
-      p && p.note ? h("span", { class: "note" }, p.note) : null));
-  }
-  c.append(seats);
-  markSpeaking();
-  if (!l) { c.append(h("p", { class: "empty" }, "Reads on each seat, who to vote and tonight's move appear here once the table is talking.")); return; }
-  c.append(h("div", { class: "verdicts" },
-    h("div", { class: "verdict" }, h("span", { class: "eyebrow" }, "Vote"), h("strong", null, l.vote.seat ? "#" + l.vote.seat : "No vote yet"), l.vote.why ? h("span", { class: "muted" }, l.vote.why) : null),
-    l.night ? h("div", { class: "verdict" }, h("span", { class: "eyebrow" }, "Tonight"), h("span", null, l.night)) : null));
-  if (l.events.length) c.append(h("h3", { class: "sub" }, "What's happened"), h("ol", { class: "plain-list" }, l.events.map((e) => h("li", { html: inline(e) }))));
-}
 async function endMeeting() {
   const m = state.cur;
   if (!m) return;
@@ -2819,24 +2081,18 @@ async function endMeeting() {
 function minutesMarkdown(m) {
   const n = m.minutes;
   if (!n) return "";
-  const lines = [`# ${titleOf(m)}`, "", `${fmtDate(m.startedAt || m.createdAt)}${m.prep.attendees && m.mode === "meeting" ? ` · ${m.prep.attendees}` : ""}`, ""];
+  const lines = [`# ${titleOf(m)}`, "", `${fmtDate(m.startedAt || m.createdAt)}${m.prep.attendees ? ` · ${m.prep.attendees}` : ""}`, ""];
   const list = (title, items) => { if (items && items.length) lines.push(`## ${title}`, "", ...items.map((x) => `- ${x}`), ""); };
-  if (m.mode === "werewolf") {
-    if (n.result) lines.push(`**Result:** ${n.result}`, "");
-    if (n.summary) lines.push(n.summary, "");
-    list("Timeline", n.timeline); list("Key moments", n.key_moments); list("How I played", n.my_play); list("Next time", n.next_time);
-  } else {
-    if (n.summary) lines.push("## Summary", "", n.summary, "");
-    list("Key points", n.key_points); list("Decisions", n.decisions);
-    if (n.actions.length) lines.push("## Action items", "", "| Task | Owner | Due |", "|---|---|---|", ...n.actions.map((a) => `| ${a.task.replace(/\|/g, "/")} | ${a.owner} | ${a.due} |`), "");
-    list("Open questions", n.open_questions);
-    if (n.follow_up_email.body) lines.push("## Follow-up email", "", `**Subject:** ${n.follow_up_email.subject}`, "", n.follow_up_email.body, "");
-    if (n.zh_hant) {
-      lines.push("## 繁體中文", "");
-      if (n.zh_hant.summary) lines.push(n.zh_hant.summary, "");
-      list("重點", n.zh_hant.key_points); list("決定", n.zh_hant.decisions);
-      if (n.zh_hant.actions.length) list("跟進事項", n.zh_hant.actions.map((a) => [a.task, a.owner, a.due].filter(Boolean).join(" · ")));
-    }
+  if (n.summary) lines.push("## Summary", "", n.summary, "");
+  list("Key points", n.key_points); list("Decisions", n.decisions);
+  if (n.actions.length) lines.push("## Action items", "", "| Task | Owner | Due |", "|---|---|---|", ...n.actions.map((a) => `| ${a.task.replace(/\|/g, "/")} | ${a.owner} | ${a.due} |`), "");
+  list("Open questions", n.open_questions);
+  if (n.follow_up_email.body) lines.push("## Follow-up email", "", `**Subject:** ${n.follow_up_email.subject}`, "", n.follow_up_email.body, "");
+  if (n.zh_hant) {
+    lines.push("## 繁體中文", "");
+    if (n.zh_hant.summary) lines.push(n.zh_hant.summary, "");
+    list("重點", n.zh_hant.key_points); list("決定", n.zh_hant.decisions);
+    if (n.zh_hant.actions.length) list("跟進事項", n.zh_hant.actions.map((a) => [a.task, a.owner, a.due].filter(Boolean).join(" · ")));
   }
   return lines.join("\n");
 }
@@ -2850,32 +2106,26 @@ function renderAfter() {
   const v = $("#view-after");
   v.replaceChildren();
   const m = state.cur;
-  if (!m) { v.append(emptyView("Minutes appear here after a meeting or game.")); return; }
-  const ww = m.mode === "werewolf";
+  if (!m) { v.append(emptyView("Minutes appear here after a meeting.")); return; }
   const n = m.minutes;
   const dur = m.startedAt ? fmtDuration(((m.endedAt || Date.now()) - m.startedAt) / 1000) : "";
   v.append(h("div", { class: "card", style: "margin-bottom:16px" },
     h("div", { class: "row space" },
       h("div", null, h("h1", { style: "font-size:24px" }, titleOf(m)), h("p", { class: "muted", style: "margin:4px 0 0" }, [fmtDate(m.startedAt || m.createdAt), dur, plural(m.segs.length, "transcript line"), m.source === "import" ? `imported from ${m.sourceName || "a transcript"}` : ""].filter(Boolean).join(" · "))),
       h("div", { class: "row" },
-        h("button", { type: "button", class: "btn primary", id: "minBtn", onclick: generateMinutes }, n ? (ww ? "Rewrite recap" : "Rewrite minutes") : ww ? "Write the recap" : "Write the minutes"),
-        n ? h("button", { type: "button", class: "btn", onclick: () => saveFile(`${safeName(titleOf(m))} - ${ww ? "recap" : "minutes"}.md`, minutesMarkdown(m)) }, "Download") : null,
+        h("button", { type: "button", class: "btn primary", id: "minBtn", onclick: generateMinutes }, n ? "Rewrite minutes" : "Write the minutes"),
+        n ? h("button", { type: "button", class: "btn", onclick: () => saveFile(`${safeName(titleOf(m))} - minutes.md`, minutesMarkdown(m)) }, "Download") : null,
         n ? h("button", { type: "button", class: "btn", onclick: () => copy(minutesMarkdown(m)) }, "Copy") : null,
         m.segs.length ? h("button", { type: "button", class: "btn ghost", onclick: () => saveFile(`${safeName(titleOf(m))} - transcript.txt`, transcriptText(m)) }, "Transcript") : null,
         m.source === "import" ? null : h("button", { type: "button", class: "btn ghost", onclick: () => go("live") }, "Back to live"))),
     h("div", { id: "minStatus", class: "status-line", style: "margin-top:8px" })));
   if (state.minutesBusy) setMinutesStatus("Writing… usually 30-90 seconds.", "busy");
   if (!n) {
-    v.append(h("div", { class: "card" }, h("p", { class: "empty" }, ww ? "Tap “Write the recap” for who won, the turning points and what to do better next time." : "Tap “Write the minutes” for a summary, key points, decisions, action items with owners and dates, open questions and a follow-up email.")));
+    v.append(h("div", { class: "card" }, h("p", { class: "empty" }, "Tap “Write the minutes” for a summary, key points, decisions, action items with owners and dates, open questions and a follow-up email.")));
     v.append(transcriptDetails(m));
     return;
   }
-  if (ww) {
-    v.append(h("div", { class: "after-grid" },
-      h("div", { class: "card stack" }, n.result ? h("p", { class: "plan-hero" }, n.result) : null, n.summary ? h("p", null, n.summary) : null, listBlock("Timeline", n.timeline)),
-      h("div", { class: "card stack" }, listBlock("Turning points", n.key_moments), listBlock("How you played", n.my_play), listBlock("Next time", n.next_time)),
-      h("div", { class: "card span-2" }, renderVisual(n.visual))));
-  } else {
+  {
     const email = n.follow_up_email;
     v.append(h("div", { class: "after-grid" },
       h("div", { class: "card span-2" }, h("h2", { style: "font-size:16px;margin-bottom:8px" }, "Summary"), h("p", { style: "margin:0;font-size:16px" }, n.summary)),
@@ -3329,6 +2579,9 @@ async function handleImportFiles(files) {
     const ext = (f.name.split(".").pop() || "").toLowerCase();
     if (MEDIA_EXT.includes(ext) || /^(audio|video)\//.test(f.type)) { if (!imp.media.includes(f.name)) imp.media.push(f.name); continue; }
     if (["pdf", "doc", "pages", "rtf"].includes(ext)) { toast(`${f.name}: save it as .docx or .txt first, then add it.`, "warn", 6000); continue; }
+    if (ext === "json" && f.size < 200 * 1024 * 1024) {
+      try { const notes = notesFrom(JSON.parse(await f.text())); if (notes) { askImportNotes(notes, f.name); continue; } } catch { /* not a notes file: read it as a transcript */ }
+    }
     if (f.size > 8 * 1024 * 1024) { toast(`${f.name} is too big to be a transcript.`, "warn"); continue; }
     try {
       let text;
@@ -3512,15 +2765,6 @@ function openTeamsPicker() {
 function wireNav() {
   for (const b of $$(".nav button")) b.addEventListener("click", () => go(b.dataset.route));
   window.addEventListener("hashchange", () => { const r = location.hash.slice(1); if (ROUTES.includes(r) && r !== state.route) go(r); });
-  // 狼人杀: ← and → move the speaker tag to the previous or next seat.
-  document.addEventListener("keydown", (e) => {
-    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
-    if (state.route !== "live" || !state.cur || state.cur.mode !== "werewolf" || e.altKey || e.ctrlKey || e.metaKey) return;
-    const el = e.target;
-    if (el && el.closest && el.closest("input, textarea, select, [contenteditable], .overlay")) return;
-    e.preventDefault();
-    stepSpeaker(e.key === "ArrowRight" ? 1 : -1);
-  });
 }
 let started = false;
 function start(hotData) {
@@ -3533,7 +2777,7 @@ function start(hotData) {
 async function init(hotData) {
   await initCaps();
   if (!window.claude) setBanner("Open AllKnowing in claude.ai to use listening, Claude and Outlook. Here it only keeps notes in this browser.");
-  else if (window.claude.notice) setBanner(esc(window.claude.notice));
+  else if (window.claude.notice) setBanner(hostNotice());
   window.addEventListener("allknowing:notice", (e) => setBanner(esc(e.detail || "")));
   bindDictation();
   if (cap.sample) { try { const lim = await cap.sample.limits(); state.imagesOK = !!(lim && lim.images); } catch { state.imagesOK = false; } }
@@ -3542,7 +2786,7 @@ async function init(hotData) {
   subscribeLists();
   const want = hotData.meetingId || safeLocalGet("lastMeeting");
   if (want) {
-    try { const m = await loadMeeting(want); if (m) { state.cur = m; resetLiveRuntime(); } } catch (e) { console.warn(e); }
+    try { const m = await loadMeeting(want); if (m && m.mode !== "werewolf") { state.cur = m; resetLiveRuntime(); } } catch (e) { console.warn(e); }
   }
   state.booted = true;
   const fromHash = location.hash.slice(1);

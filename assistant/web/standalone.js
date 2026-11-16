@@ -12,16 +12,25 @@
 
    There is no `db` or `mcp` here, so the page keeps meetings in this browser and hides the Outlook buttons.
    Keys are kept in this browser's storage on this device and sent only to the service they belong to.
+
+   Served by the Mac mini (hub/hub.cjs, which marks the page with <meta name="allknowing-hub">), it works
+   differently: the meetings live on the Mac mini (`db`, shared by every device that has the pairing code),
+   and the keys stay there too. Claude is asked through the Mac mini, and listening gets a one-use key
+   from it for each connection.
    The build (assistant/build-web.cjs) adds this file to the page; the artifact never loads it. */
 (() => {
 	if (window.claude) return;
 
 	const VERSION = "__AK_VERSION__";
 	const STORE = "allknowing:keys:v1";
+	const HUB = !!document.querySelector('meta[name="allknowing-hub"]');
+	const HUB_STORE = "allknowing:hub:v1";
 	const CLAUDE_API = "https://api.anthropic.com/v1";
 	const SPEECH_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
 	const RATE = 16000;
-	const WHERE = "under “This device” on the Home screen";
+	const WHERE = HUB
+		? "in the “Mac mini” box on the Home screen"
+		: "under “This device” on the Home screen";
 	const DEFAULTS = {
 		claudeVia: "",
 		macLink: "",
@@ -79,7 +88,12 @@
 		const code = raw.match(/#\s*([A-Za-z0-9][A-Za-z0-9 -]{10,}?)\s*$/);
 		return url && code ? { base: url[0], code: code[1] } : null;
 	}
-	const claudeReady = () => (viaMac() ? !!macTarget() : !!cfg.claudeKey.trim());
+	const claudeReady = () =>
+		HUB
+			? hub.state !== "ok" || hub.status.claude
+			: viaMac()
+				? !!macTarget()
+				: !!cfg.claudeKey.trim();
 	function saveCfg() {
 		try {
 			localStorage.setItem(STORE, JSON.stringify(cfg));
@@ -90,6 +104,7 @@
 	}
 	// What the page should say at the top while something is missing.
 	function missing() {
+		if (HUB) return hubMissing();
 		if (!claudeReady() && !cfg.speechKey)
 			return "To get going, open the “This device” box on the Home screen: connect Claude and add your speech key.";
 		if (!cfg.speechKey)
@@ -107,16 +122,316 @@
 		window.dispatchEvent(new CustomEvent("allknowing:notice", { detail: text }));
 	}
 
+	/* ---------- the Mac mini: pairing, its status, and the notes it keeps ---------- */
+	const hub = { code: "", state: "", status: null, app: "", told: false };
+	try {
+		hub.code = String(JSON.parse(localStorage.getItem(HUB_STORE) || "{}").code || "");
+	} catch {
+		/* first run, or storage is off */
+	}
+	function saveHub() {
+		try {
+			localStorage.setItem(HUB_STORE, JSON.stringify({ code: hub.code }));
+		} catch {
+			/* private mode: the code lasts until the page closes */
+		}
+	}
+	// A pairing link (…/#pair=XXXX-XXXX-XXXX) connects this device in one tap.
+	if (HUB) {
+		const m = location.hash.match(/(?:^#|&)pair=([A-Za-z0-9-]{8,40})/);
+		if (m) {
+			hub.code = m[1];
+			saveHub();
+			try {
+				history.replaceState(null, "", location.pathname + location.search);
+			} catch {
+				/* leave the address as it is */
+			}
+		}
+	}
+	function hubMissing() {
+		if (hub.state === "unpaired")
+			return "Connect this device to your Mac mini: enter its code in the “Mac mini” box on the Home screen.";
+		if (hub.state === "locked")
+			return "Too many wrong codes were tried from here. Wait 10 minutes, then enter the Mac mini's code again.";
+		if (hub.state === "down")
+			return "Can't reach your Mac mini. Check it's on, and that this device is on the home Wi-Fi or connected to Tailscale.";
+		if (hub.state !== "ok") return "";
+		const st = hub.status;
+		if (!st.claude && !st.speech)
+			return "Add your Claude and speech keys in the “Mac mini” box on the Home screen. It's once, for all your devices.";
+		if (!st.speech)
+			return "Add a speech key in the “Mac mini” box on the Home screen to switch on listening.";
+		if (!st.claude)
+			return "Add a Claude API key in the “Mac mini” box on the Home screen to switch on summaries and “what to say”.";
+		return "";
+	}
+	const hubHeaders = (extra) => ({ ...extra, ...(hub.code ? { "x-api-key": hub.code } : {}) });
+	async function hubFetch(url, opts = {}) {
+		let res;
+		try {
+			res = await fetch(url, {
+				...opts,
+				headers: hubHeaders(opts.headers),
+				cache: "no-store",
+			});
+		} catch (e) {
+			if (e && e.name === "AbortError") throw e;
+			throw fail(
+				"unavailable",
+				"Can't reach your Mac mini. Check it's on, and that this device is on the home Wi-Fi or connected to Tailscale.",
+			);
+		}
+		if (res.status === 401) {
+			if (hub.state !== "unpaired") {
+				hub.state = "unpaired";
+				tell(missing());
+			}
+			throw fail("unauthenticated", "This device isn't connected to your Mac mini yet.");
+		}
+		if (res.status === 429)
+			throw fail("rate_limited", "Too many wrong codes. Wait 10 minutes, then try again.");
+		return res;
+	}
+	async function hubOk(url, opts) {
+		const res = await hubFetch(url, opts);
+		if (res.ok) return res;
+		let said = "";
+		try {
+			said = String((await res.json()).error.message || "");
+		} catch {
+			/* no body */
+		}
+		throw fail(
+			res.status === 413 ? "too_big" : res.status >= 500 ? "unavailable" : "invalid_argument",
+			said || `Your Mac mini said no (${res.status}).`,
+		);
+	}
+	async function refreshStatus() {
+		if (!hub.code) hub.state = "unpaired";
+		else {
+			try {
+				const res = await fetch("/api/status", {
+					headers: hubHeaders(),
+					cache: "no-store",
+				});
+				if (res.status === 401) hub.state = "unpaired";
+				else if (res.status === 429) hub.state = "locked";
+				else if (res.ok) {
+					hub.status = await res.json();
+					hub.state = "ok";
+					if (!hub.app) hub.app = hub.status.app || "";
+				} else hub.state = "down";
+			} catch {
+				hub.state = "down";
+			}
+		}
+		tell(missing());
+		redrawCard();
+	}
+	let hubInit = null;
+	function hubStart() {
+		if (!hubInit)
+			hubInit = (async () => {
+				// This Mac's own browser (http://localhost) is let in without the code.
+				if (!hub.code) {
+					try {
+						const res = await fetch("/api/pair/local", { cache: "no-store" });
+						if (res.ok) {
+							const j = await res.json();
+							if (j.code) {
+								hub.code = j.code;
+								saveHub();
+							}
+						}
+					} catch {
+						/* not this Mac */
+					}
+				}
+				await refreshStatus();
+			})();
+		return hubInit;
+	}
+
+	// The notes, kept on the Mac mini: documents and collections, as the page uses them inside claude.ai.
+	const enc = encodeURIComponent;
+	const docSnap = (id, j) => ({
+		id,
+		exists: !!j.exists,
+		data: () => (j.exists ? j.data : undefined),
+		metadata: { fromCache: false, hasPendingWrites: false },
+	});
+	const colSnap = (list) => {
+		const docs = list.map((d) => docSnap(d.id, { exists: true, data: d.data }));
+		return {
+			docs,
+			size: docs.length,
+			empty: !docs.length,
+			metadata: { fromCache: false, hasPendingWrites: false },
+		};
+	};
+	function docRef(p) {
+		const url = `/api/db/doc?p=${enc(p)}`;
+		return {
+			id: p.split("/").pop(),
+			path: p,
+			get: async () => docSnap(p.split("/").pop(), await (await hubOk(url)).json()),
+			set: async (data) => {
+				await hubOk(url, {
+					method: "PUT",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ data }),
+				});
+			},
+			delete: async () => {
+				await hubOk(url, { method: "DELETE" });
+			},
+			collection: (name) => colRef(`${p}/${name}`),
+		};
+	}
+	async function fetchCol(p, q) {
+		const qs = [`p=${enc(p)}`];
+		if (q.order) qs.push(`order=${enc(q.order)}`, `dir=${q.dir === "desc" ? "desc" : "asc"}`);
+		if (q.limit) qs.push(`limit=${Number(q.limit) || 0}`);
+		return (await (await hubOk(`/api/db/col?${qs.join("&")}`)).json()).docs || [];
+	}
+	function query(p, q) {
+		return {
+			orderBy: (field, dir = "asc") => query(p, { ...q, order: field, dir }),
+			limit: (n) => query(p, { ...q, limit: n }),
+			get: async () => colSnap(await fetchCol(p, q)),
+			onSnapshot: (next, onError) => subscribe(p, q, next, onError),
+		};
+	}
+	const colRef = (p) =>
+		Object.assign(query(p, {}), { path: p, doc: (id) => docRef(`${p}/${id}`) });
+	const hubDb = { doc: docRef, collection: colRef };
+	const hubUser = { id: async () => "owner", me: async () => null };
+
+	// Open lists follow changes made on any device: the Mac mini says what changed, and the list is read again.
+	const subs = new Set();
+	function subscribe(p, q, next, onError) {
+		const sub = { p, q, next, onError, busy: false, again: false, timer: null };
+		subs.add(sub);
+		refreshSub(sub);
+		watch();
+		return () => subs.delete(sub);
+	}
+	async function refreshSub(sub) {
+		if (sub.busy) {
+			sub.again = true;
+			return;
+		}
+		sub.busy = true;
+		try {
+			const snap = colSnap(await fetchCol(sub.p, sub.q));
+			if (subs.has(sub)) sub.next(snap);
+		} catch (e) {
+			if (sub.onError && subs.has(sub)) sub.onError(e);
+		} finally {
+			sub.busy = false;
+			if (sub.again) {
+				sub.again = false;
+				refreshSub(sub);
+			}
+		}
+	}
+	function soon(sub) {
+		clearTimeout(sub.timer);
+		sub.timer = setTimeout(() => refreshSub(sub), 120);
+	}
+	function onHubEvent(ev) {
+		if (ev.p) {
+			const parent = String(ev.p).split("/").slice(0, -1).join("/");
+			for (const sub of subs) if (sub.p === parent) soon(sub);
+		}
+		if (ev.app) {
+			if (!hub.app) hub.app = ev.app;
+			else if (ev.app !== hub.app && !hub.told) {
+				hub.told = true;
+				window.dispatchEvent(
+					new CustomEvent("allknowing:notice", {
+						detail: "AllKnowing was updated on your Mac mini. Reload this page when you're free to get the new version.",
+					}),
+				);
+			}
+		}
+	}
+	let watching = false;
+	async function watch() {
+		if (watching || !HUB) return;
+		watching = true;
+		let wait = 1000;
+		while (subs.size) {
+			try {
+				const res = await hubFetch("/api/db/watch", {
+					headers: { accept: "text/event-stream" },
+				});
+				if (!res.ok || !res.body) throw new Error(`watch ${res.status}`);
+				wait = 1000;
+				for (const sub of subs) soon(sub); // catch up on anything missed while the connection was down
+				const reader = res.body.getReader();
+				const decoder = new TextDecoder();
+				let buf = "";
+				for (;;) {
+					const { value, done } = await reader.read();
+					if (done) break;
+					buf += decoder.decode(value, { stream: true });
+					let end = buf.indexOf("\n\n");
+					while (end >= 0) {
+						for (const line of buf.slice(0, end).split("\n")) {
+							if (!line.startsWith("data:")) continue;
+							try {
+								onHubEvent(JSON.parse(line.slice(5)));
+							} catch {
+								/* not an event */
+							}
+						}
+						buf = buf.slice(end + 2);
+						end = buf.indexOf("\n\n");
+					}
+				}
+			} catch (e) {
+				if (e && e.code === "unauthenticated") break;
+			}
+			await sleep(wait);
+			wait = Math.min(wait * 2, 30000);
+		}
+		watching = false;
+	}
+	// A phone that was put away misses changes: read the lists again when it comes back.
+	document.addEventListener("visibilitychange", () => {
+		if (!HUB || document.visibilityState !== "visible") return;
+		for (const sub of subs) soon(sub);
+		watch();
+		refreshStatus();
+	});
+	// A one-use key for the speech service, made by the Mac mini with the key it keeps.
+	async function hubSpeechKey() {
+		const res = await hubFetch("/api/speech-key", { method: "POST" });
+		const j = await res.json().catch(() => ({}));
+		if (!res.ok || !j.api_key)
+			throw fail(
+				"upstream_error",
+				(j.error && j.error.message) ||
+					`Your Mac mini couldn't get a speech key (${res.status}).`,
+			);
+		return j.api_key;
+	}
+
 	/* ---------- Claude (Anthropic Messages API) ---------- */
 	// The relay on the Mac answers like the API, so both go the same way; the Mac takes its pairing code as the key.
-	const claudeBase = () => (viaMac() ? `${macTarget().base}/v1` : CLAUDE_API);
-	const claudeHeaders = () => ({
-		"content-type": "application/json",
-		"x-api-key": viaMac() ? macTarget().code : cfg.claudeKey.trim(),
-		"anthropic-version": "2023-06-01",
-		// The API only answers a browser directly when the page says it knows it is sending the user's own key.
-		"anthropic-dangerous-direct-browser-access": "true",
-	});
+	const claudeBase = () => (HUB ? "/v1" : viaMac() ? `${macTarget().base}/v1` : CLAUDE_API);
+	const claudeHeaders = () =>
+		HUB
+			? hubHeaders({ "content-type": "application/json", "anthropic-version": "2023-06-01" })
+			: {
+					"content-type": "application/json",
+					"x-api-key": viaMac() ? macTarget().code : cfg.claudeKey.trim(),
+					"anthropic-version": "2023-06-01",
+					// The API only answers a browser directly when the page says it knows it is sending the user's own key.
+					"anthropic-dangerous-direct-browser-access": "true",
+				};
 	function imageBlock(blob) {
 		return new Promise((resolve, reject) => {
 			const reader = new FileReader();
@@ -222,10 +537,12 @@
 		}
 	}
 	async function ask(prompt, opts = {}, json = false) {
+		if (HUB && hub.state === "unpaired")
+			throw fail("no_key", `Connect this device to your Mac mini ${WHERE} first.`);
 		if (!claudeReady())
 			throw fail(
 				"no_key",
-				viaMac()
+				viaMac() && !HUB
 					? `Paste the Mac link ${WHERE} first.`
 					: `Add your Claude API key ${WHERE} first.`,
 			);
@@ -294,9 +611,11 @@
 			if (e && e.name === "AbortError") throw fail("cancelled", "", { text });
 			throw fail(
 				"upstream_error",
-				viaMac()
-					? "Couldn't reach your Mac. Check that it's on, and that Tailscale is connected on this phone."
-					: "Couldn't reach Claude. Check the internet connection and try again.",
+				HUB
+					? "Couldn't reach your Mac mini. Check it's on, and that this device is on the home Wi-Fi or connected to Tailscale."
+					: viaMac()
+						? "Couldn't reach your Mac. Check that it's on, and that Tailscale is connected on this phone."
+						: "Couldn't reach Claude. Check the internet connection and try again.",
 				{ text },
 			);
 		}
@@ -432,9 +751,10 @@ registerProcessor("ak-pcm", AkPcm);`;
 		return config;
 	}
 	// Opens the socket and sends the settings. The key goes in the handshake; if that handshake fails,
-	// one more try sends it with the settings instead (the service's older way).
-	function openSocket(config, keyInMessage = false) {
-		const key = cfg.speechKey.trim();
+	// one more try sends it with the settings instead (the service's older way). On the Mac mini every
+	// try gets its own one-use key.
+	async function openSocket(config, keyInMessage = false) {
+		const key = HUB ? await hubSpeechKey() : cfg.speechKey.trim();
 		return new Promise((resolve, reject) => {
 			let ws;
 			try {
@@ -746,7 +1066,11 @@ registerProcessor("ak-pcm", AkPcm);`;
 	}
 	async function start(opts = {}) {
 		if (phase !== "idle") throw fail("busy", "Already listening.");
-		if (!cfg.speechKey.trim()) throw fail("no_key", `To listen, add your speech key ${WHERE}.`);
+		if (HUB && !window.isSecureContext) throw fail("insecure", insecureNote());
+		if (HUB && hub.state === "unpaired")
+			throw fail("no_key", `To listen, connect this device to your Mac mini ${WHERE}.`);
+		if (HUB ? hub.state === "ok" && !hub.status.speech : !cfg.speechKey.trim())
+			throw fail("no_key", `To listen, add your speech key ${WHERE}.`);
 		if (
 			!navigator.mediaDevices ||
 			!navigator.mediaDevices.getUserMedia ||
@@ -909,8 +1233,16 @@ registerProcessor("ak-pcm", AkPcm);`;
 		}
 	});
 
+	// Browsers only let a page use the microphone over a secure link (https, or this computer itself).
+	function insecureNote() {
+		const ts = hub.status && hub.status.links && hub.status.links.ts;
+		return `This link can't use the microphone: browsers only allow it over a secure link. To listen on this device, open ${ts || "the Mac mini's Tailscale link (https://…ts.net)"} instead${ts ? " (it needs Tailscale on this device)" : ""}. Reading, preparing and importing work here.`;
+	}
 	const dictation = {
 		voices: true,
+		get unavailable() {
+			return HUB && !window.isSecureContext ? insecureNote() : "";
+		},
 		onPartial: (fn) => heard.partial.push(fn),
 		onFinal: (fn) => heard.final.push(fn),
 		onState: (fn) => heard.state.push(fn),
@@ -958,7 +1290,9 @@ registerProcessor("ak-pcm", AkPcm);`;
 
 	/* ---------- the “This device” box on the Home screen ---------- */
 	async function testClaude() {
-		if (viaMac()) {
+		if (HUB) {
+			if (hub.state === "ok" && !hub.status.claude) return "Paste a key first.";
+		} else if (viaMac()) {
 			const mac = macTarget();
 			if (!mac)
 				return "Paste the Mac link first (it starts with https:// and ends with # and the code).";
@@ -983,13 +1317,15 @@ registerProcessor("ak-pcm", AkPcm);`;
 		} else if (!cfg.claudeKey.trim()) return "Paste a key first.";
 		try {
 			await ask("Reply with the single word OK.", { modelTier: "quick" });
-			return viaMac() ? "Works. Claude answers through your Mac, on your plan." : "Works.";
+			return !HUB && viaMac()
+				? "Works. Claude answers through your Mac, on your plan."
+				: "Works.";
 		} catch (e) {
 			return (e && e.userMessage) || `Didn't work (${(e && e.code) || "error"}).`;
 		}
 	}
 	function testSpeech() {
-		if (!cfg.speechKey.trim()) return Promise.resolve("Paste a key first.");
+		if (!HUB && !cfg.speechKey.trim()) return Promise.resolve("Paste a key first.");
 		return new Promise((resolve) => {
 			let settled = false;
 			const done = (text, ws) => {
@@ -1230,7 +1566,12 @@ registerProcessor("ak-pcm", AkPcm);`;
 				el(
 					"p",
 					{ class: "small-text muted" },
-					"Meetings are saved on this device only. Outlook and Teams are in the claude.ai version.",
+					"Meetings are saved on this device only. To share them with your other devices, ",
+					link(
+						"https://github.com/Godraymond/AllKnowing/blob/main/assistant/hub/README.md",
+						"set AllKnowing up on your Mac mini",
+					),
+					", then move them there with “Download all notes” in Settings. Outlook and Teams are in the claude.ai version.",
 				),
 				// Only needed if a service retires a model name before this app is updated.
 				el(
@@ -1257,11 +1598,393 @@ registerProcessor("ak-pcm", AkPcm);`;
 		);
 	}
 
+	/* ---------- the “Mac mini” box on the Home screen ---------- */
+	let cardEl = null;
+	function redrawCard() {
+		if (!HUB || !cardEl || !cardEl.isConnected) return;
+		const next = hubCard();
+		cardEl.replaceWith(next);
+		cardEl = next;
+	}
+	function pairForm() {
+		const status = el("span", { class: "small-text muted", role: "status" });
+		const input = el("input", {
+			id: "akHubCode",
+			autocomplete: "off",
+			autocapitalize: "characters",
+			spellcheck: "false",
+			placeholder: "XXXX-XXXX-XXXX",
+		});
+		const btn = el("button", { type: "button", class: "btn small primary" }, "Connect");
+		const connect = async () => {
+			const code = input.value.trim();
+			if (!code) return;
+			btn.disabled = true;
+			status.textContent = "Connecting…";
+			try {
+				const res = await fetch("/api/status", {
+					headers: { "x-api-key": code },
+					cache: "no-store",
+				});
+				if (res.ok) {
+					hub.code = code;
+					saveHub();
+					status.textContent = "Connected.";
+					location.reload();
+					return;
+				}
+				status.textContent =
+					res.status === 401
+						? "That code isn't right. Check it on the Mac mini."
+						: res.status === 429
+							? "Too many wrong codes. Wait 10 minutes, then try again."
+							: `Your Mac mini said no (${res.status}).`;
+			} catch {
+				status.textContent = "Can't reach your Mac mini from here.";
+			}
+			btn.disabled = false;
+		};
+		btn.addEventListener("click", connect);
+		input.addEventListener("keydown", (e) => {
+			if (e.key === "Enter") connect();
+		});
+		return el(
+			"div",
+			{ class: "field" },
+			el("label", { for: "akHubCode" }, "The Mac mini's code"),
+			input,
+			el("div", { class: "row" }, btn, status),
+			el(
+				"span",
+				{ class: "hint" },
+				"Open AllKnowing on the Mac mini itself (http://localhost:4790): the code is in this box there. It's also at the end of what the installer printed. Each device needs it once.",
+			),
+		);
+	}
+	function hubKeyField(id, label, prop, has, hint, test) {
+		const status = el(
+			"span",
+			{ class: "small-text muted", role: "status" },
+			has ? "Saved on the Mac mini." : "Not added yet.",
+		);
+		const input = el("input", {
+			id,
+			type: "password",
+			autocomplete: "off",
+			autocapitalize: "off",
+			spellcheck: "false",
+			placeholder: has ? "Saved. Paste a new one to replace it." : "Paste it here",
+		});
+		const save = el("button", { type: "button", class: "btn small" }, "Save");
+		save.addEventListener("click", async () => {
+			const key = input.value.trim();
+			if (!key) {
+				status.textContent = "Paste the key first.";
+				return;
+			}
+			save.disabled = true;
+			status.textContent = "Saving…";
+			try {
+				const res = await hubOk("/api/keys", {
+					method: "PUT",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ [prop]: key }),
+				});
+				hub.status = { ...hub.status, ...(await res.json()) };
+				input.value = "";
+				input.placeholder = "Saved. Paste a new one to replace it.";
+				tell(missing());
+				status.textContent = "Saved on the Mac mini. Checking it…";
+				status.textContent = `Saved on the Mac mini. ${await test()}`;
+			} catch (e) {
+				status.textContent = (e && e.userMessage) || "Couldn't save it.";
+			}
+			save.disabled = false;
+		});
+		const check = el("button", { type: "button", class: "btn small ghost" }, "Check");
+		check.addEventListener("click", async () => {
+			check.disabled = true;
+			status.textContent = "Checking…";
+			status.textContent = await test();
+			check.disabled = false;
+		});
+		return el(
+			"div",
+			{ class: "field" },
+			el("label", { for: id }, label),
+			input,
+			el("div", { class: "row" }, save, check, status),
+			el("span", { class: "hint" }, hint),
+		);
+	}
+	function copyButton(text, label = "Copy") {
+		const b = el("button", { type: "button", class: "btn small ghost" }, label);
+		b.addEventListener("click", () =>
+			navigator.clipboard.writeText(text).then(
+				() => {
+					b.textContent = "Copied";
+					setTimeout(() => {
+						b.textContent = label;
+					}, 1800);
+				},
+				() => {
+					b.textContent = "Select and copy it";
+				},
+			),
+		);
+		return b;
+	}
+	function linksBlock(st) {
+		const L = st.links || {};
+		const row = (label, url, note) =>
+			url
+				? el(
+						"li",
+						null,
+						`${label} `,
+						el("a", { href: url }, url),
+						note ? el("span", { class: "muted" }, ` · ${note}`) : null,
+					)
+				: null;
+		return el(
+			"div",
+			{ class: "stack", style: "gap:4px" },
+			el(
+				"span",
+				{ class: "small-text", style: "font-weight:600" },
+				"Open AllKnowing on any of your devices",
+			),
+			el(
+				"ul",
+				{ class: "small-text", style: "margin:0;padding-left:18px;display:grid;gap:4px" },
+				row("Anywhere, with listening:", L.ts, "needs Tailscale on that device"),
+				row(
+					"At home, on the same Wi-Fi:",
+					L.lan,
+					L.ts
+						? "reading, preparing and importing; to listen, use the link above"
+						: "reading, preparing and importing; listening needs a secure link (Tailscale, see the setup notes)",
+				),
+				row("On the Mac mini itself:", L.mac, "everything, listening too"),
+			),
+		);
+	}
+	function updateBlock(st) {
+		const up = st.update || {};
+		const status = el(
+			"span",
+			{ class: "small-text muted", role: "status" },
+			up.hub
+				? "A new version is ready."
+				: up.page
+					? `A new version of the page is ready${up.auto ? "; it goes in by itself when nothing is happening" : ""}.`
+					: up.error
+						? "Couldn't check for updates just now."
+						: up.checkedAt
+							? "Up to date."
+							: "",
+		);
+		const btn = el("button", { type: "button", class: "btn small" }, "Get the latest version");
+		btn.addEventListener("click", async () => {
+			btn.disabled = true;
+			status.textContent = "Updating…";
+			try {
+				const res = await hubFetch("/api/update", { method: "POST" });
+				const j = await res.json().catch(() => ({}));
+				status.textContent =
+					j.message || (res.ok ? "Done." : `Didn't work (${res.status}).`);
+				if (j.restart) {
+					await sleep(5000);
+					location.reload();
+					return;
+				}
+				if (res.ok && /^Updated/.test(j.message || ""))
+					status.textContent += " Reload this page to use it.";
+			} catch (e) {
+				status.textContent = (e && e.userMessage) || "Couldn't update.";
+			}
+			btn.disabled = false;
+		});
+		return el(
+			"div",
+			{ class: "row" },
+			el("span", { class: "small-text" }, `Version ${st.app || VERSION}`),
+			btn,
+			status,
+		);
+	}
+	function hubTips() {
+		const tips = [];
+		if (isIOS() && !isInstalled())
+			tips.push(
+				"To install on iPhone: tap Share, then Add to Home Screen. The installed app asks for the Mac mini's code once more.",
+			);
+		tips.push(
+			"While it listens, keep AllKnowing on screen. A phone stops the microphone when the screen locks or you switch apps.",
+		);
+		tips.push("Listening sends about 115 MB of sound an hour, so use Wi-Fi where you can.");
+		return el(
+			"ul",
+			{ class: "small-text muted", style: "margin:0;padding-left:18px" },
+			tips.map((t) => el("li", null, t)),
+		);
+	}
+	function hubCard() {
+		const st = hub.status || {};
+		const head = el(
+			"div",
+			{ class: "card-head" },
+			el("h2", null, "Mac mini"),
+			el(
+				"span",
+				{ class: "muted small-text" },
+				hub.state === "ok"
+					? "Connected"
+					: hub.state === "down"
+						? "Not reachable"
+						: hub.state === ""
+							? "Connecting…"
+							: "Not connected",
+			),
+		);
+		const body = el("div", { class: "form" });
+		if (!window.isSecureContext)
+			body.append(el("div", { class: "banner" }, el("span", null, insecureNote())));
+		if (hub.state === "")
+			body.append(el("p", { class: "small-text muted" }, "Connecting to your Mac mini…"));
+		else if (hub.state === "down") {
+			const again = el("button", { type: "button", class: "btn small" }, "Try again");
+			again.addEventListener("click", () => refreshStatus());
+			body.append(
+				el("p", { class: "small-text" }, hubMissing()),
+				el("div", { class: "row" }, again),
+			);
+		} else if (hub.state !== "ok") {
+			body.append(
+				el(
+					"p",
+					{ class: "small-text muted" },
+					hub.state === "locked"
+						? hubMissing()
+						: "Your meetings are kept on your Mac mini. Enter its code once to see them here and to add to them.",
+				),
+				pairForm(),
+			);
+		} else {
+			const code = st.code || hub.code;
+			const L = st.links || {};
+			const pairLink = `${L.ts || L.lan || location.origin}/#pair=${code}`;
+			// Once both keys are in, the details fold away so the box doesn't push everything else down a phone screen.
+			const ready = !!(st.claude && st.speech);
+			const parts = [];
+			body.append(
+				el(
+					"p",
+					{ class: "small-text muted" },
+					ready
+						? "Every device you connect sees the same meetings. Your Claude and speech keys are saved on the Mac mini, which asks Claude for you and hands out a one-use speech key each time a device starts listening."
+						: "Every device you connect sees the same meetings, and the keys stay on the Mac mini: it asks Claude for you, and hands out a one-use speech key each time a device starts listening.",
+				),
+			);
+			parts.push(
+				hubKeyField(
+					"akHubClaude",
+					"Claude API key",
+					"claudeKey",
+					!!st.claude,
+					el(
+						"span",
+						null,
+						"Writes the summaries, reads and “what to say”. From ",
+						link(
+							"https://console.anthropic.com/settings/keys",
+							"console.anthropic.com",
+						),
+						", pay as you go (Max, Ultra and Team plans include monthly API credits). It sees what was said and your notes.",
+					),
+					testClaude,
+				),
+				hubKeyField(
+					"akHubSpeech",
+					"Speech key (Soniox)",
+					"speechKey",
+					!!st.speech,
+					el(
+						"span",
+						null,
+						"Turns sound into words and tells the voices apart. From ",
+						link("https://console.soniox.com", "console.soniox.com"),
+						". It hears the audio.",
+					),
+					testSpeech,
+				),
+				el(
+					"div",
+					{ class: "two" },
+					modelField("akQuick", "Model for “Fast” and “What should I say?”", "quick"),
+					modelField("akThorough", "Model for “Thorough”, plans and minutes", "thorough"),
+				),
+				linksBlock(st),
+				el(
+					"div",
+					{ class: "stack", style: "gap:4px" },
+					el(
+						"span",
+						{ class: "small-text", style: "font-weight:600" },
+						"Connect another device",
+					),
+					el(
+						"div",
+						{ class: "row" },
+						el(
+							"span",
+							{ class: "small-text" },
+							"Open a link above on it and enter ",
+							el("code", null, code),
+						),
+						copyButton(code, "Copy code"),
+						copyButton(pairLink, "Copy pairing link"),
+					),
+				),
+				updateBlock(st),
+				el(
+					"p",
+					{ class: "small-text muted" },
+					st.backup && st.backup.last
+						? `The Mac mini keeps a copy of every note each day (last one ${st.backup.last}, in the AllKnowing folder's backups). Outlook and Teams are in the claude.ai version.`
+						: "The Mac mini keeps a copy of every note each day, in the AllKnowing folder's backups. Outlook and Teams are in the claude.ai version.",
+				),
+				hubTips(),
+			);
+			if (ready)
+				body.append(
+					el(
+						"details",
+						{ class: "small-text" },
+						el("summary", null, "Keys, links, other devices and updates"),
+						el("div", { class: "form", style: "margin-top:10px" }, parts),
+					),
+				);
+			else body.append(...parts);
+		}
+		return el("div", { class: "card" }, head, body);
+	}
+
 	window.claude = {
 		standalone: true,
+		hub: HUB,
 		version: VERSION,
-		use: async (name) => ({ sample, dictation, downloads })[name] || null,
-		homeCard,
+		savedWhere: HUB ? "Saved on your Mac mini" : "",
+		use: async (name) => {
+			if (!HUB) return { sample, dictation, downloads }[name] || null;
+			await hubStart();
+			return { sample, dictation, downloads, db: hubDb, user: hubUser }[name] || null;
+		},
+		homeCard: () => {
+			if (!HUB) return homeCard();
+			cardEl = hubCard();
+			return cardEl;
+		},
 		get notice() {
 			return missing();
 		},

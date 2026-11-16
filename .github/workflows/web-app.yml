@@ -1,6 +1,7 @@
 name: Web app
 
-# Builds the AllKnowing web app (assistant/dist) and puts it on the gh-pages branch.
+# Builds the AllKnowing web app (assistant/dist) and puts it on the gh-pages branch, where the Mac mini's
+# installer and its updates fetch it from (version.json lists every file with its SHA-256).
 # GitHub Pages serves that branch once it is switched on:
 #   Settings → Pages → Source "Deploy from a branch" → Branch "gh-pages", folder "/ (root)".
 # Until then this still runs and passes; the branch just isn't served anywhere.
@@ -37,17 +38,17 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Check the speaker tracking
-        run: node assistant/check-seat-tracking.cjs
-
       - name: Check the web app's runtime
         run: node assistant/check-web-runtime.cjs
+
+      - name: Check the Mac mini's server
+        run: node assistant/check-hub.cjs
 
       - name: Check the Mac relay
         run: node assistant/check-relay.cjs
 
-      - name: Check the Mac installer
-        run: bash -n assistant/relay/install.sh
+      - name: Check the Mac installers
+        run: bash -n assistant/hub/install.sh && bash -n assistant/relay/install.sh
 
       - name: Build
         run: node assistant/build-web.cjs "$(date -u +%Y-%m-%d).${GITHUB_SHA::7}"

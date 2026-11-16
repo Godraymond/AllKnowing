@@ -177,7 +177,7 @@ const sandbox = {
 			getUserMedia: async () => ({ getTracks: () => [track], getAudioTracks: () => [track] }),
 		},
 	},
-	document: { visibilityState: "visible", addEventListener: noop },
+	document: { visibilityState: "visible", addEventListener: noop, querySelector: () => null },
 	addEventListener: noop,
 	dispatchEvent: (e) => notices.push(e.detail),
 };
@@ -326,7 +326,7 @@ vm.runInNewContext(code, sandbox);
 	ok("the listener says it tells voices apart", dict.voices === true);
 	await dict.start({
 		language: "zh",
-		hints: { topic: "狼人杀", terms: ["预言家", "3号", "预言家", " "] },
+		hints: { topic: "预算会议", terms: ["王经理", "差旅", "王经理", " "] },
 	});
 	const feed = setInterval(() => {
 		if (micNode && micNode.onaudioprocess)
@@ -359,8 +359,8 @@ vm.runInNewContext(code, sandbox);
 	ok(
 		"settings: Chinese with English expected, and the hints as context",
 		JSON.stringify(ws.config.language_hints) === '["zh","en"]' &&
-			JSON.stringify(ws.config.context.terms) === '["预言家","3号"]' &&
-			ws.config.context.general[0].value === "狼人杀",
+			JSON.stringify(ws.config.context.terms) === '["王经理","差旅"]' &&
+			ws.config.context.general[0].value === "预算会议",
 	);
 	await sleep(80);
 	const frame = ws.audio[0];
@@ -676,6 +676,238 @@ vm.runInNewContext(code, sandbox);
 	inside.window = inside;
 	vm.runInNewContext(code, inside);
 	ok("inside claude.ai it leaves the real runtime alone", inside.claude.real === true);
+
+	// ---- served by the Mac mini (hub/hub.cjs marks the page) ----
+	// A stand-in for the hub's API: notes, status, Claude and one-use speech keys, all behind the pairing code.
+	const CODE = "ABCD-EFGH-JKLM";
+	const hub = {
+		docs: new Map(),
+		calls: [],
+		keys: { claude: true, speech: true },
+		watchers: [],
+		temp: 0,
+	};
+	const resp = (status, body) => ({
+		ok: status < 300,
+		status,
+		json: async () => body,
+		body: null,
+	});
+	const hubFetch = async (url, init = {}) => {
+		const u = new URL(url, "http://mac.local:4790");
+		const headers = init.headers || {};
+		hub.calls.push({
+			path: u.pathname,
+			method: init.method || "GET",
+			headers,
+			body: init.body,
+		});
+		if (u.pathname === "/api/pair/local") return resp(403, {});
+		if (headers["x-api-key"] !== CODE) return resp(401, { error: { message: "no" } });
+		if (u.pathname === "/api/status")
+			return resp(200, {
+				claude: hub.keys.claude,
+				speech: hub.keys.speech,
+				code: CODE,
+				app: "t1",
+				links: {
+					ts: "https://mac.ts.net",
+					lan: "http://mac.local:4790",
+					mac: "http://localhost:4790",
+				},
+				update: {},
+			});
+		if (u.pathname === "/api/speech-key") {
+			hub.temp++;
+			return resp(200, { api_key: `temp:${hub.temp}`, expires_at: "" });
+		}
+		if (u.pathname === "/api/db/doc") {
+			const p = u.searchParams.get("p");
+			if ((init.method || "GET") === "GET")
+				return resp(
+					200,
+					hub.docs.has(p) ? { exists: true, data: hub.docs.get(p) } : { exists: false },
+				);
+			if (init.method === "PUT") hub.docs.set(p, JSON.parse(init.body).data);
+			if (init.method === "DELETE") hub.docs.delete(p);
+			for (const w of hub.watchers) w(`data: ${JSON.stringify({ p })}\n\n`);
+			return resp(200, { ok: true });
+		}
+		if (u.pathname === "/api/db/col") {
+			const p = u.searchParams.get("p");
+			let docs = [...hub.docs]
+				.filter(([k]) => k.startsWith(`${p}/`) && !k.slice(p.length + 1).includes("/"))
+				.map(([k, data]) => ({ id: k.slice(p.length + 1), data }));
+			const order = u.searchParams.get("order");
+			if (order)
+				docs.sort(
+					(a, b) =>
+						(a.data[order] - b.data[order]) *
+						(u.searchParams.get("dir") === "desc" ? -1 : 1),
+				);
+			if (u.searchParams.get("limit"))
+				docs = docs.slice(0, Number(u.searchParams.get("limit")));
+			return resp(200, { docs });
+		}
+		if (u.pathname === "/api/db/watch") {
+			const queue = [`data: ${JSON.stringify({ hello: true, app: "t1" })}\n\n`];
+			let wake = null;
+			hub.watchers.push((line) => {
+				queue.push(line);
+				if (wake) wake();
+			});
+			const reader = {
+				read: async () => {
+					while (!queue.length)
+						await new Promise((r) => {
+							wake = r;
+						});
+					return { done: false, value: new TextEncoder().encode(queue.shift()) };
+				},
+			};
+			return { ok: true, status: 200, body: { getReader: () => reader } };
+		}
+		if (u.pathname === "/v1/messages") return fakeFetch(url, init);
+		return resp(404, {});
+	};
+	const hubStore = new Map([["allknowing:keys:v1", JSON.stringify({})]]);
+	const onHub = (opts = {}) => {
+		const box = {
+			...sandbox,
+			claude: undefined,
+			fetch: hubFetch,
+			isSecureContext: opts.secure !== false,
+			TextEncoder,
+			URL,
+			location: {
+				hash: opts.hash || "",
+				pathname: "/",
+				search: "",
+				origin: "http://mac.local:4790",
+				reload: noop,
+			},
+			history: {
+				replaceState: (a, b, url) => {
+					box.location.hash = String(url).includes("#")
+						? String(url).slice(String(url).indexOf("#"))
+						: "";
+				},
+			},
+			localStorage: {
+				getItem: (k) => (hubStore.has(k) ? hubStore.get(k) : null),
+				setItem: (k, v) => hubStore.set(k, String(v)),
+			},
+			document: {
+				visibilityState: "visible",
+				addEventListener: noop,
+				querySelector: (q) => (/allknowing-hub/.test(q) ? {} : null),
+			},
+		};
+		box.window = box;
+		vm.runInNewContext(code, box);
+		return box;
+	};
+	const unpaired = onHub();
+	await unpaired.claude.use("db");
+	ok(
+		"on the Mac mini, a device without the code is asked to connect",
+		unpaired.claude.hub === true &&
+			/Connect this device to your Mac mini/.test(unpaired.claude.notice),
+		unpaired.claude.notice,
+	);
+	ok(
+		"…and Claude says the same instead of trying",
+		(await noKey(async () => (await unpaired.claude.use("sample"))("x"))) === "no_key",
+	);
+	const paired = onHub({ hash: `#pair=${CODE}` });
+	const db = await paired.claude.use("db");
+	ok(
+		"a pairing link connects, and leaves the address",
+		JSON.parse(hubStore.get("allknowing:hub:v1")).code === CODE && paired.location.hash === "",
+	);
+	ok(
+		"nothing missing once the Mac mini has both keys",
+		paired.claude.notice === "",
+		paired.claude.notice,
+	);
+	ok(
+		"says meetings are kept on the Mac mini",
+		paired.claude.savedWhere === "Saved on your Mac mini",
+	);
+	ok(
+		"one person's notes: the owner's",
+		(await (await paired.claude.use("user")).id()) === "owner",
+	);
+	const homeRef = db.doc("data/users/owner/home");
+	await homeRef.collection("index").doc("m1").set({ id: "m1", title: "First", updatedAt: 1 });
+	const snap = await homeRef.collection("index").doc("m1").get();
+	ok(
+		"notes are written and read through the Mac mini",
+		snap.exists &&
+			snap.data().title === "First" &&
+			hub.calls.some(
+				(c) =>
+					c.path === "/api/db/doc" &&
+					c.method === "PUT" &&
+					c.headers["x-api-key"] === CODE,
+			),
+	);
+	const seen = [];
+	homeRef
+		.collection("index")
+		.orderBy("updatedAt", "desc")
+		.limit(300)
+		.onSnapshot((sn) => seen.push(sn.docs.map((d) => d.data().title)));
+	await sleep(60);
+	await homeRef.collection("index").doc("m2").set({ id: "m2", title: "Second", updatedAt: 2 });
+	await sleep(400);
+	ok(
+		"an open list follows changes made anywhere, newest first",
+		seen.length >= 2 && seen[seen.length - 1].join() === "Second,First",
+		JSON.stringify(seen),
+	);
+	const callsBefore = claudeCalls.length;
+	await (await paired.claude.use("sample"))("Reply with the single word OK.", {
+		modelTier: "quick",
+	});
+	const viaHub = claudeCalls[callsBefore];
+	ok(
+		"Claude is asked through the Mac mini, with the code and no key",
+		viaHub &&
+			viaHub.url === "/v1/messages" &&
+			viaHub.headers["x-api-key"] === CODE &&
+			!viaHub.headers["anthropic-dangerous-direct-browser-access"],
+	);
+	const hd = await paired.claude.use("dictation");
+	const nSock = FakeSocket.all.length;
+	await hd.start({ language: "en" });
+	const hs = FakeSocket.all[nSock];
+	ok(
+		"listening gets a one-use key from the Mac mini",
+		hs && hs.protocols[1] === `temp:${hub.temp}` && hub.temp >= 1,
+	);
+	await hd.stop();
+	hub.keys.speech = false;
+	const noSpeech = onHub();
+	await noSpeech.claude.use("db");
+	ok(
+		"a missing speech key on the Mac mini is pointed out",
+		/Add a speech key in the “Mac mini” box/.test(noSpeech.claude.notice),
+		noSpeech.claude.notice,
+	);
+	hub.keys.speech = true;
+	const plain = onHub({ secure: false });
+	const pd = await plain.claude.use("dictation");
+	let insecure = null;
+	try {
+		await pd.start({});
+	} catch (e) {
+		insecure = e;
+	}
+	ok(
+		"on a link that isn't secure, listening explains which link to use",
+		/https:\/\/mac\.ts\.net/.test(pd.unavailable) && insecure && insecure.code === "insecure",
+	);
 
 	console.log(fails ? `\n${fails} FAILED` : "\nALL PASS");
 	process.exit(fails ? 1 : 0);

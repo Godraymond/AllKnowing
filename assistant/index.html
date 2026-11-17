@@ -243,6 +243,8 @@ details > summary { cursor: pointer; font-weight: 700; }
 .stat-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .stat { font-size: 13px; padding: 3px 9px; border-radius: 999px; background: var(--surface-2); color: var(--muted); font-weight: 600; }
 .preview-lines { display: grid; gap: 6px; max-height: 420px; overflow: auto; padding-right: 4px; }
+.meter { height: 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); overflow: hidden; }
+.meter > span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s ease; }
 
 /* modal and toasts */
 .overlay { position: fixed; inset: 0; background: rgb(10 12 16 / .45); display: grid; place-items: center; padding: 16px; z-index: 50; }
@@ -253,7 +255,7 @@ details > summary { cursor: pointer; font-weight: 700; }
 .ev { display: grid; gap: 2px; text-align: left; padding: 9px 11px; border-radius: 9px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; }
 .ev:hover { border-color: var(--accent); }
 .ev .when { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
-#toasts { position: fixed; right: 16px; bottom: 16px; display: grid; gap: 8px; z-index: 60; max-width: min(440px, calc(100% - 32px)); }
+#toasts { position: fixed; right: 16px; bottom: 16px; display: grid; gap: 8px; z-index: 60; max-width: min(440px, calc(100% - 32px)); pointer-events: none; }
 .toast { background: var(--ink); color: var(--surface); padding: 10px 14px; border-radius: 10px; font-size: 14px; box-shadow: var(--shadow); }
 .toast.warn { background: var(--warn); color: #fff; }
 .toast.bad { background: var(--bad); color: #fff; }
@@ -372,7 +374,10 @@ function fmtClock(sec) {
   return hh ? `${hh}:${pad(mm)}:${pad(ss)}` : `${pad(mm)}:${pad(ss)}`;
 }
 function fmtDuration(sec) {
-  const m = Math.round((Number(sec) || 0) / 60);
+  sec = Number(sec) || 0;
+  // Under a minute, in seconds: a short recording isn't "0 min".
+  if (sec >= 1 && sec < 59.5) return `${Math.round(sec)} s`;
+  const m = Math.round(sec / 60);
   if (m < 60) return `${m} min`;
   return `${Math.floor(m / 60)} h ${m % 60} min`;
 }
@@ -472,7 +477,7 @@ const PREP_MEETING_SHAPE = `{
   "opening": "suggested opening words",
   "people": [{"name": "person", "angle": "what they care about and how to handle them"}]
 }`;
-const minutesShape = (zh) => `{
+const minutesShape = (zh, voices = false) => `{
   "title": "meeting title",
   "summary": "3-5 sentences",
   "key_points": ["point"],
@@ -480,7 +485,8 @@ const minutesShape = (zh) => `{
   "actions": [{"task": "task", "owner": "who", "due": "YYYY-MM-DD or empty", "priority": "high|normal"}],
   "open_questions": ["question"],
   "follow_up_email": {"subject": "subject", "body": "plain text body"},
-  "visual": {"title": "headline", "conclusions": ["conclusion"], "cards": [{"title": "heading", "subtitle": "takeaway", "bullets": ["point"]}]}${zh ? `,
+  "visual": {"title": "headline", "conclusions": ["conclusion"], "cards": [{"title": "heading", "subtitle": "takeaway", "bullets": ["point"]}]}${voices ? `,
+  "voices": [{"voice": 3, "name": "who this voice is", "sure": 80}]` : ""}${zh ? `,
   "zh_hant": {"summary": "...", "key_points": ["..."], "decisions": ["..."], "actions": [{"task": "...", "owner": "...", "due": "..."}]}` : ""}
 }`;
 /* ---------- state ---------- */
@@ -492,6 +498,8 @@ const state = {
   todos: [],
   listsLoaded: false,
   cur: null,
+  // a recording being turned into text: { m, st, watching }
+  job: null,
   // live runtime
   dictState: "idle",
   partial: "",
@@ -522,7 +530,7 @@ const state = {
   minutesBusy: false,
   skipSetupLang: false,
 };
-const cap = { db: null, user: null, sample: null, dict: null, mcp: null, downloads: null };
+const cap = { db: null, user: null, sample: null, dict: null, mcp: null, downloads: null, transcribe: null };
 
 /* ---------- toasts and modals ---------- */
 function toast(msg, kind = "info", ms = 4500) {
@@ -560,9 +568,12 @@ async function useCap(name) {
   } catch { return null; }
 }
 async function initCaps() {
-  const names = ["db", "user", "sample", "dictation", "mcp", "downloads"];
+  // Recordings turned into text: only the web app on the Mac mini does that, so only its own runtime is asked.
+  const own = !!(window.claude && window.claude.standalone);
+  const names = ["db", "user", "sample", "dictation", "mcp", "downloads", ...(own ? ["transcribe"] : [])];
   const got = await Promise.all(names.map(useCap));
   cap.db = got[0]; cap.user = got[1]; cap.sample = got[2]; cap.dict = got[3]; cap.mcp = got[4]; cap.downloads = got[5];
+  cap.transcribe = got[6] || null;
 }
 
 /* ---------- storage: claude.ai db, or this browser as a fallback ---------- */
@@ -716,6 +727,13 @@ async function loadMeeting(id) {
   return normalizeMeeting(m);
 }
 async function deleteMeeting(id) {
+  if (cap.transcribe) {
+    try {
+      const saved = state.cur && state.cur.id === id ? state.cur : P.mode === "db" ? obj((await P.mtgCol.doc(id).get()).data()) : obj(P.local.meetings[id]);
+      const jobId = obj(saved.job).id;
+      if (jobId) cap.transcribe.forget(jobId).catch(() => null);
+    } catch { /* the Mac mini clears it away itself in time */ }
+  }
   if (P.mode === "db") {
     const ref = P.mtgCol.doc(id);
     try {
@@ -894,7 +912,9 @@ function normalizeMeeting(m) {
   return m;
 }
 const titleOf = (m) => m.title || "Untitled meeting";
-const routeFor = (m) => (m.status === "done" ? "after" : m.status === "live" ? "live" : "prep");
+// A recording that is still being turned into text shows its progress where its minutes will be.
+const routeFor = (m) => (m.status === "done" || m.status === "transcribing" ? "after" : m.status === "live" ? "live" : "prep");
+const STATUS_WORD = { done: "Done", live: "Started", transcribing: "Transcribing" };
 function resetLiveRuntime() {
   const m = state.cur;
   state.speaker = "";
@@ -985,7 +1005,7 @@ function renderCurrentBox() {
 function startButtons() {
   return h("div", { class: "row" },
     h("button", { type: "button", class: "btn primary", onclick: () => newMeeting() }, "New meeting"),
-    h("button", { type: "button", class: "btn", onclick: () => go("import") }, "Import a transcript"));
+    h("button", { type: "button", class: "btn", onclick: () => go("import") }, cap.transcribe ? "Import a recording or transcript" : "Import a transcript"));
 }
 function emptyView(text) { return h("div", { class: "card stack" }, h("p", { class: "muted" }, text), startButtons()); }
 function selectEl(id, options, value, onchange, cls = "") {
@@ -1032,19 +1052,19 @@ function renderHome() {
   v.append(h("div", { class: "hero" },
     h("div", null,
       h("h1", null, "Meetings"),
-      h("p", null, "Give it the background and get a plan. During the meeting it listens, tells you what's going on and what to say next. Afterwards you get minutes, follow-ups and calendar holds. Recorded somewhere else? Import the transcript.")),
+      h("p", null, "Give it the background and get a plan. During the meeting it listens, tells you what's going on and what to say next. Afterwards you get minutes, follow-ups and calendar holds. " + (cap.transcribe ? "Recorded somewhere else? Import the recording, or its transcript." : "Recorded somewhere else? Import the transcript."))),
     startButtons()));
 
   const recent = h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", null, "Recent"), h("span", { class: "muted small-text" }, savedWhere())));
   if (!state.listsLoaded) recent.append(h("p", { class: "empty" }, "Loading your meetings…"));
-  else if (!state.meetings.length) recent.append(h("p", { class: "empty" }, "Nothing yet. Start a meeting above, or import a transcript."));
+  else if (!state.meetings.length) recent.append(h("p", { class: "empty" }, cap.transcribe ? "Nothing yet. Start a meeting above, or import a recording." : "Nothing yet. Start a meeting above, or import a transcript."));
   else {
     const list = h("div");
     for (const m of state.meetings.slice(0, 40)) {
       list.append(h("div", { class: "mrow" },
         h("span", { class: "mode-badge" }, "Meeting"),
         h("button", { type: "button", class: "mtitle", onclick: () => openMeeting(m.id) }, m.title || "Untitled meeting"),
-        h("span", { class: "mstatus" }, `${m.status === "done" ? "Done" : m.status === "live" ? "Started" : "Preparing"} · ${fmtDate(m.startedAt || m.createdAt)}`),
+        h("span", { class: "mstatus" }, `${STATUS_WORD[m.status] || "Preparing"} · ${fmtDate(m.startedAt || m.createdAt)}`),
         h("button", { type: "button", class: "btn small ghost", "aria-label": "Delete " + (m.title || "meeting"), onclick: () => confirmDelete(m) }, "Delete")));
     }
     recent.append(list);
@@ -1304,6 +1324,16 @@ function txLines(m, maxBytes) {
 }
 // Said to Claude when the transcript carries voice numbers.
 const VOICE_NOTE = "vN in a tag is the voice the speech service heard for that line. The same number is nearly always the same person from start to finish, and different numbers are usually different people, though the service sometimes gives one person two numbers or lets two people share one.";
+// Two ways one person ends up with two numbers, said when they apply: listening that stopped and started
+// again numbers its voices afresh in the next block of 20, and a long recording is put into text in parts.
+function voiceNote(m) {
+  let note = VOICE_NOTE;
+  const blocks = new Set(m.segs.filter((x) => x.v > 0).map((x) => Math.floor(x.v / VOICE_STEP)));
+  if (blocks.size > 1 && !m.transcribed) note += ` The numbers start again in a new block of ${VOICE_STEP} (v1 on, v21 on, …) each time listening was restarted, so one person can have a number in more than one block.`;
+  const joins = arr(obj(m.transcribed).joins, 20).filter((x) => x > 0);
+  if (joins.length) note += ` This recording was put into text in ${joins.length + 1} parts, joined at about ${joins.map(fmtClock).join(" and ")}. Someone who said nothing in the minutes around a join can come back with a new number after it, so one person may have one number before a join and another after.`;
+  return note;
+}
 const liveMeetingShape = (m) => (hasVoices(m) ? LIVE_MEETING_SHAPE.replace(/\n}$/, ',\n  "voices": [{"voice": 3, "name": "who this voice is", "sure": 80}]\n}') : LIVE_MEETING_SHAPE);
 function meetingContext(m, includePlan = true) {
   const p = m.prep;
@@ -1331,7 +1361,7 @@ function promptLiveMeeting(m) {
     m.live ? headByBytes(JSON.stringify(m.live), 9000) : "none yet",
     "",
     "TRANSCRIPT SO FAR (live speech-to-text: expect misheard words, missing punctuation and mixed languages; [Name] marks the speaker when tagged; (note) lines are the user's own notes; newest lines are last):",
-    ...(voices ? [`${VOICE_NOTE} A tag with only vN is a voice nobody has named yet.`] : []),
+    ...(voices ? [`${voiceNote(m)} A tag with only vN is a voice nobody has named yet.`] : []),
     m.segs.length ? txLines(m, LIVE_TRANSCRIPT_BYTES) : "(nothing said yet: base the picture on the setup and the prep plan)",
     "",
     "Update the live picture. Reply with only a JSON object in exactly this shape:",
@@ -1382,19 +1412,23 @@ function promptPrepMeeting(m) {
 function promptMinutes(m) {
   const name = myName();
   const zh = state.settings.zhMinutes !== false;
+  const voices = hasVoices(m);
   return [
     `Turn this meeting into minutes for ${name}.`,
     "", meetingContext(m), "",
     m.live ? "LAST LIVE PICTURE (JSON):\n" + headByBytes(JSON.stringify(m.live), 8000) + "\n" : "",
-    m.source === "import"
-      ? `FULL TRANSCRIPT (imported from ${m.sourceName || "a file"}; it may be machine-transcribed, so expect misheard words; [Name] marks speakers where the file named them; times are from the start of the recording):`
-      : "FULL TRANSCRIPT (speech-to-text: expect misheard words; [Name] marks speakers when tagged; (note) lines are the user's notes):",
-    ...(hasVoices(m) ? [`${VOICE_NOTE} A tag with only vN is a voice nobody has named: work out who it is from what's said where you can, and otherwise keep that person's points together.`] : []),
+    m.transcribed
+      ? `FULL TRANSCRIPT (a speech service's text of the recording ${m.sourceName || ""}: expect misheard words, names above all; times are from the start of the recording):`
+      : m.source === "import"
+        ? `FULL TRANSCRIPT (imported from ${m.sourceName || "a file"}; it may be machine-transcribed, so expect misheard words; [Name] marks speakers where the file named them; times are from the start of the recording):`
+        : "FULL TRANSCRIPT (speech-to-text: expect misheard words; [Name] marks speakers when tagged; (note) lines are the user's notes):",
+    ...(voices ? [`${voiceNote(m)} A tag with only vN is a voice nobody has named: work out who it is from what's said where you can, and otherwise keep that person's points together.`] : []),
     m.segs.length ? txLines(m, MINUTES_TRANSCRIPT_BYTES) : "(no transcript)",
     "",
     "Reply with only a JSON object in exactly this shape:",
-    minutesShape(zh),
+    minutesShape(zh, voices),
     "Rules:",
+    ...(voices ? [`- voices: for each vN you can put a name to, who it is. Use the attendees' names as given above, and "Me" for ${name}. Go by introductions, people being addressed by name, and things only that person would say. sure is 0-100; leave out any voice you can't place.`] : []),
     "- Flag unclear passages with (unclear) rather than guessing. Quote numbers exactly as heard.",
     `- actions: every follow-up, with an owner (use "${name}" for the user) and a due date as YYYY-MM-DD when one is stated or clearly implied (today is ${localISODate()}), otherwise empty.`,
     `- follow_up_email: a short email from ${name} to the attendees recapping decisions and next steps, in the meeting's main language. Plain text, no signature.`,
@@ -1582,6 +1616,11 @@ async function generateMinutes() {
     m.status = "done";
     m.endedAt = m.endedAt || Date.now();
     if (!m.title && m.minutes.title) m.title = m.minutes.title;
+    // With voices in the transcript, the minutes also say whose voice is whose.
+    if (hasVoices(m)) {
+      applyVoiceNames(m, data);
+      if (state.dirtySegs) await saveSegs(m);
+    }
     await saveMeeting(m);
     const added = await addActionsAsTodos(m);
     state.minutesBusy = false;
@@ -1651,6 +1690,7 @@ function startListening() {
   const d = cap.dict;
   const m = state.cur;
   if (!m) return;
+  if (m.status === "transcribing") { toast("This meeting's recording is still being turned into text.", "warn", 5000); return; }
   if (!d) { toast("Dictation needs Chrome or Edge on a computer, or the Claude desktop app. You can still type below.", "warn", 7000); return; }
   const lang = listenLang(m);
   state.voiceBase = nextVoiceBase(m);
@@ -1807,6 +1847,7 @@ function setSpeaker(key) {
 function addSeg(kind, text, sp = "") {
   const m = state.cur;
   if (!m || !text) return;
+  if (m.status === "transcribing") { toast("Wait for the transcript before adding to it.", "warn", 5000); return; }
   if (!m.startedAt) { m.startedAt = Date.now(); m.status = "live"; state.dirtyMeeting = true; ensureClock(); }
   const s = { id: uid(), t: (Date.now() - m.startedAt) / 1000, sp: kind === "speech" ? sp : "", text, kind };
   m.segs.push(s);
@@ -2069,6 +2110,7 @@ function renderDetail() {
 async function endMeeting() {
   const m = state.cur;
   if (!m) return;
+  if (m.status === "transcribing") { go("after"); return; }
   if (isListening()) await stopListening();
   m.endedAt = Date.now();
   state.dirtyMeeting = true;
@@ -2102,16 +2144,176 @@ async function saveFile(filename, data) {
   try { await cap.downloads.save({ filename, data }); }
   catch (e) { const code = e && e.code; if (code && !/cancel|declin|dismiss/.test(code)) toast(`Couldn't save the file (${code}).`, "bad"); }
 }
+/* A recording on its way to being text. The Mac mini does the work; this asks how it's going, and when
+   the text is ready takes it, saves it as the meeting's transcript, and writes the minutes if asked. Any
+   device that opens the meeting can do that, so the one that sent the recording can be put away. */
+const pauseFor = (ms) => new Promise((r) => setTimeout(r, ms));
+// What to say about a recording's progress, and how the line should look.
+function jobLine(st) {
+  if (!st) return ["Checking with your Mac mini…", "busy"];
+  const part = st.parts > 1 ? ` (part ${Math.min(st.parts, (st.part || 0) + 1)} of ${st.parts})` : "";
+  switch (st.state) {
+    case "queued": return [st.waiting > 0 ? "Waiting for another recording to finish first…" : "Starting…", "busy"];
+    case "preparing": return ["Getting the audio ready…", "busy"];
+    case "sending": return [`Sending the audio to Soniox${part}…`, "busy"];
+    case "transcribing": return [`Soniox is turning it into text${part}…`, "busy"];
+    case "done": return ["The text is ready. Saving it…", "busy"];
+    case "error": return [st.error || "It stopped. Try again.", "bad"];
+    case "receiving": return ["The recording didn't all reach your Mac mini. Delete this and import it again.", "bad"];
+    case "missing": return ["Your Mac mini doesn't have this recording any more. Delete this and import it again.", "bad"];
+    case "offline": return [`${st.error || "Can't reach your Mac mini."} Trying again…`, "busy"];
+    default: return ["Working on it…", "busy"];
+  }
+}
+const jobFailed = (st) => !!st && ["error", "receiving", "missing"].includes(st.state);
+function renderTranscribing(v, m) {
+  const st = state.job && state.job.m === m ? state.job.st : null;
+  const failed = jobFailed(st);
+  const [text, kind] = cap.transcribe ? jobLine(st) : ["This recording is being turned into text by AllKnowing on your Mac mini. Open the meeting there to see it.", ""];
+  v.append(h("div", { class: "card stack" },
+    h("div", null,
+      h("h1", { style: "font-size:24px" }, titleOf(m)),
+      h("p", { class: "muted", style: "margin:4px 0 0" }, [fmtDate(m.startedAt || m.createdAt), m.recSeconds ? fmtDuration(m.recSeconds) : "", m.sourceName ? `from ${m.sourceName}` : ""].filter(Boolean).join(" · "))),
+    h("p", { id: "jobStatus", class: `status-line ${kind}`, style: "margin:0;font-size:15px", role: "status" }, text),
+    cap.transcribe && !failed ? h("p", { class: "muted small-text", style: "margin:0" }, `This can take a few minutes. You can close AllKnowing meanwhile: your Mac mini carries on, and the transcript is here when you open this meeting again.${obj(m.job).minutes ? " Then the minutes get written." : ""}`) : null,
+    cap.transcribe ? h("div", { class: "row" },
+      st && st.state === "error" ? h("button", { type: "button", class: "btn primary", onclick: () => retryJob(m) }, "Try again") : null,
+      h("button", { type: "button", class: `btn${failed ? "" : " ghost"}`, onclick: () => confirmStopJob(m, failed) }, failed ? "Delete this meeting" : "Stop and delete")) : null));
+  watchJob(m);
+}
+// The latest word on a recording: the line is rewritten in place, the card redrawn when its buttons change.
+function showJob(m, st) {
+  const w = state.job;
+  if (!w || w.m !== m) return;
+  const redraw = jobFailed(w.st) !== jobFailed(st) || (w.st && w.st.state === "error") !== (st.state === "error");
+  w.st = st;
+  if (state.cur !== m || state.route !== "after") return;
+  const line = $("#jobStatus");
+  if (redraw || !line) { renderAfter(); return; }
+  const [text, kind] = jobLine(st);
+  line.textContent = text;
+  line.className = `status-line ${kind}`;
+}
+function watchJob(m) {
+  if (!cap.transcribe || !m.job) return;
+  if (state.job && state.job.m === m && state.job.watching) return;
+  const w = { m, st: state.job && state.job.m === m ? state.job.st : null, watching: true };
+  state.job = w;
+  (async () => {
+    let gap = 1500;
+    while (state.cur === m && state.job === w && m.status === "transcribing" && m.job) {
+      let st;
+      try { st = await cap.transcribe.status(m.job.id); gap = 2500; }
+      catch (e) { st = { state: "offline", error: (e && e.userMessage) || "" }; gap = Math.min(gap * 2, 30000); }
+      if (state.cur !== m || state.job !== w || !m.job) break;
+      if (st.state === "done") { if (await finishJob(m, w)) break; }
+      // Gone from the Mac mini: another device may have saved the transcript and cleared it away.
+      else if (st.state === "missing") { if (!(await takeSaved(m))) showJob(m, st); break; }
+      else {
+        showJob(m, st);
+        if (jobFailed(st)) break;
+      }
+      await pauseFor(gap);
+    }
+    w.watching = false;
+  })();
+}
+// The meeting as it is saved now, if by now it has its transcript (another device saved it).
+async function takeSaved(m) {
+  let fresh = null;
+  try { fresh = await loadMeeting(m.id); } catch { return false; }
+  if (!fresh || fresh.status === "transcribing" || state.cur !== m) return false;
+  const minutesComing = !!obj(m.job).minutes && !fresh.minutes && fresh.segs.length > 0;
+  state.cur = fresh;
+  state.job = null;
+  resetLiveRuntime();
+  renderCurrentBox();
+  if (state.route === "after") renderAfter();
+  if (minutesComing) awaitMinutes(fresh);
+  return true;
+}
+// The device that saved the transcript is writing the minutes: look in for them, rather than write a second set.
+async function awaitMinutes(m) {
+  for (let i = 0; i < 45 && state.cur === m && !m.minutes && !state.minutesBusy; i++) {
+    if (state.route === "after") setMinutesStatus("Your other device is writing the minutes. They'll show here when they're done.", "busy");
+    await pauseFor(4000);
+    if (state.cur !== m || m.minutes || state.minutesBusy || state.dirtyMeeting || state.dirtySegs) break;
+    let fresh = null;
+    try { fresh = await loadMeeting(m.id); } catch { continue; }
+    if (state.cur !== m || state.minutesBusy) break;
+    if (fresh && fresh.minutes) {
+      state.cur = fresh;
+      resetLiveRuntime();
+      renderCurrentBox();
+      if (state.route === "after") renderAfter();
+      return;
+    }
+  }
+  if (state.cur === m && !m.minutes && !state.minutesBusy && state.route === "after") setMinutesStatus("");
+}
+// The text is ready: take it, make it the meeting's transcript, save, then the minutes if they were asked for.
+async function finishJob(m, w) {
+  const job = m.job;
+  let got;
+  try { got = await cap.transcribe.claim(job.id); }
+  catch (e) {
+    if (e && e.code === "not_found") { if (!(await takeSaved(m))) showJob(m, { state: "missing" }); return true; }
+    showJob(m, { state: "offline", error: (e && e.userMessage) || "" });
+    return false;
+  }
+  if (state.cur !== m || state.job !== w) return true;
+  if (got.claimed) { showJob(m, { state: "done" }); return takeSaved(m); }
+  m.segs = arr(got.lines, 200000).map((l) => {
+    const line = obj(l);
+    const seg = { id: uid(), t: Math.max(0, Number(line.t) || 0), sp: "", text: str(line.text, 6000), kind: "speech" };
+    const v = Number(line.v);
+    if (Number.isInteger(v) && v > 0) seg.v = v;
+    return seg;
+  }).filter((x) => x.text);
+  const seconds = Number(got.duration) || m.recSeconds || 0;
+  m.recSeconds = seconds;
+  if (m.startedAt && seconds) m.endedAt = m.startedAt + Math.round(seconds * 1000);
+  m.transcribed = { by: "Soniox", model: str(got.model, 60), at: Date.now(), joins: arr(got.joins, 20).map(Number).filter((x) => x > 0) };
+  m.status = "done";
+  delete m.job;
+  state.job = null;
+  resetLiveRuntime();
+  markSegDirty(0);
+  await saveSegs(m);
+  await saveMeeting(m);
+  // Saved here, so the Mac mini needn't keep its copy (if saving failed, it stays there to be taken again).
+  if (!state.dirtySegs && !state.dirtyMeeting) cap.transcribe.forget(job.id).catch(() => null);
+  if (state.cur !== m) return true;
+  renderCurrentBox();
+  if (state.route === "after") renderAfter();
+  if (!m.segs.length) toast("Soniox heard no words in that recording.", "warn", 7000);
+  else if (job.minutes && cap.sample && !state.aiBlocked) generateMinutes();
+  else toast(job.minutes ? "The transcript is in. Tap “Write the minutes” when Claude is connected." : "The transcript is in. Write the minutes whenever you're ready.", "good", 6000);
+  return true;
+}
+async function retryJob(m) {
+  if (!m.job || !cap.transcribe) return;
+  try { showJob(m, await cap.transcribe.retry(m.job.id)); }
+  catch (e) { toast((e && e.userMessage) || "Couldn't reach your Mac mini. Try again in a moment.", "bad", 6000); return; }
+  watchJob(m);
+}
+function confirmStopJob(m, failed) {
+  const md2 = modal(failed ? "Delete this meeting?" : "Stop and delete?", h("p", null, failed ? `“${titleOf(m)}” has no transcript. It will be deleted.` : `Your Mac mini stops working on “${titleOf(m)}”, and the meeting is deleted. The recording itself stays wherever you keep it.`), [
+    h("button", { type: "button", class: "btn", onclick: () => md2.close() }, "Cancel"),
+    h("button", { type: "button", class: "btn live", onclick: async () => { md2.close(); await deleteMeeting(m.id); go("home"); toast("Deleted."); } }, failed ? "Delete" : "Stop and delete"),
+  ]);
+}
 function renderAfter() {
   const v = $("#view-after");
   v.replaceChildren();
   const m = state.cur;
   if (!m) { v.append(emptyView("Minutes appear here after a meeting.")); return; }
+  if (m.status === "transcribing") { renderTranscribing(v, m); return; }
   const n = m.minutes;
   const dur = m.startedAt ? fmtDuration(((m.endedAt || Date.now()) - m.startedAt) / 1000) : "";
   v.append(h("div", { class: "card", style: "margin-bottom:16px" },
     h("div", { class: "row space" },
-      h("div", null, h("h1", { style: "font-size:24px" }, titleOf(m)), h("p", { class: "muted", style: "margin:4px 0 0" }, [fmtDate(m.startedAt || m.createdAt), dur, plural(m.segs.length, "transcript line"), m.source === "import" ? `imported from ${m.sourceName || "a transcript"}` : ""].filter(Boolean).join(" · "))),
+      h("div", null, h("h1", { style: "font-size:24px" }, titleOf(m)), h("p", { class: "muted", style: "margin:4px 0 0" }, [fmtDate(m.startedAt || m.createdAt), dur, plural(m.segs.length, "transcript line"), m.transcribed ? `transcribed from ${m.sourceName || "a recording"}` : m.source === "import" ? `imported from ${m.sourceName || "a transcript"}` : ""].filter(Boolean).join(" · "))),
       h("div", { class: "row" },
         h("button", { type: "button", class: "btn primary", id: "minBtn", onclick: generateMinutes }, n ? "Rewrite minutes" : "Write the minutes"),
         n ? h("button", { type: "button", class: "btn", onclick: () => saveFile(`${safeName(titleOf(m))} - minutes.md`, minutesMarkdown(m)) }, "Download") : null,
@@ -2120,6 +2322,8 @@ function renderAfter() {
         m.source === "import" ? null : h("button", { type: "button", class: "btn ghost", onclick: () => go("live") }, "Back to live"))),
     h("div", { id: "minStatus", class: "status-line", style: "margin-top:8px" })));
   if (state.minutesBusy) setMinutesStatus("Writing… usually 30-90 seconds.", "busy");
+  // Hours of talk: more than goes into one request for minutes, so say which end is kept whole.
+  if (txChars(m) > 50000 && bytes(txLines(m, Infinity)) > MINUTES_TRANSCRIPT_BYTES) v.append(h("div", { class: "banner" }, h("span", null, "This is a very long transcript. The minutes cover the later part in full and may miss detail from the start.")));
   if (!n) {
     v.append(h("div", { class: "card" }, h("p", { class: "empty" }, "Tap “Write the minutes” for a summary, key points, decisions, action items with owners and dates, open questions and a follow-up email.")));
     v.append(transcriptDetails(m));
@@ -2146,7 +2350,12 @@ function renderAfter() {
 function transcriptDetails(m) {
   if (!m.segs.length) return h("div");
   return h("details", { class: "card", style: "margin-top:16px" }, h("summary", null, `Full transcript (${plural(m.segs.length, "line")})`),
-    h("div", { class: "stack", style: "margin-top:10px;gap:6px" }, m.segs.map(segEl)));
+    h("div", { class: "stack", style: "margin-top:10px;gap:6px" }, m.segs.map((seg) => {
+      const el = segEl(seg);
+      // Kept, so a line whose voice gets a name here is redrawn with it.
+      if (seg.v && m === state.cur) state.segEls.set(seg.id, el);
+      return el;
+    })));
 }
 function todoFor(m, a) {
   const k = normKey(a.task);
@@ -2334,7 +2543,7 @@ function openCalendarModal(t) {
 
 /* ---------- import a transcript ---------- */
 const localDT = (d) => `${localISODate(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-function freshImport() { return { title: "", when: localDT(new Date()), attendees: "", goal: "", lang: "match", text: "", files: [], media: [], parsed: null, source: "" }; }
+function freshImport() { return { title: "", when: localDT(new Date()), whenSet: false, attendees: "", goal: "", lang: "match", text: "", files: [], media: [], rec: null, parsed: null, source: "" }; }
 const CJK = "\\u3400-\\u9fff\\uf900-\\ufaff";
 const hasCJK = (s) => new RegExp(`[${CJK}]`).test(s);
 function joinText(a, b) {
@@ -2577,7 +2786,13 @@ async function handleImportFiles(files) {
   const imp = state.imp;
   for (const f of Array.from(files || [])) {
     const ext = (f.name.split(".").pop() || "").toLowerCase();
-    if (MEDIA_EXT.includes(ext) || /^(audio|video)\//.test(f.type)) { if (!imp.media.includes(f.name)) imp.media.push(f.name); continue; }
+    if (MEDIA_EXT.includes(ext) || /^(audio|video)\//.test(f.type)) {
+      // On the Mac mini a recording is turned into text there. Anywhere else it needs a transcript first.
+      if (!cap.transcribe) { if (!imp.media.includes(f.name)) imp.media.push(f.name); }
+      else if (imp.rec) toast("One recording at a time: import this one, then the next.", "warn", 6000);
+      else addRecording(f);
+      continue;
+    }
     if (["pdf", "doc", "pages", "rtf"].includes(ext)) { toast(`${f.name}: save it as .docx or .txt first, then add it.`, "warn", 6000); continue; }
     if (ext === "json" && f.size < 200 * 1024 * 1024) {
       try { const notes = notesFrom(JSON.parse(await f.text())); if (notes) { askImportNotes(notes, f.name); continue; } } catch { /* not a notes file: read it as a transcript */ }
@@ -2604,11 +2819,59 @@ function showPreviewOnPhone() {
   const box = $("#impPreview");
   if (box && window.innerWidth < 900 && state.imp && state.imp.parsed && state.imp.parsed.segs.length) box.scrollIntoView({ behavior: "smooth", block: "start" });
 }
+// The meeting's language as the speech service is told it (the same as for listening).
+const speechLang = (code) => ({ zh: "zh", yue: "zh-HK", en: "en" }[code] || "");
+// Names the speech service should expect: the people in "Who was there", and you.
+function namesIn(attendees) {
+  const names = String(attendees || "").split(/[,;，；、\n]+/).map((x) => x.replace(/<[^>]*>|\([^)]*\)|[\w.+-]+@[\w-]+(\.[\w-]+)+/g, "").replace(/["“”]/g, "").trim()).filter((x) => x && x.length <= 40);
+  if (state.settings.myName) names.push(state.settings.myName);
+  return Array.from(new Set(names)).slice(0, 60);
+}
+const fmtSize = (n) => (n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${Math.round(n / 1e6)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`);
+// How long a recording plays, from the file itself (0 when this browser can't tell).
+function mediaSeconds(file) {
+  return new Promise((resolve) => {
+    let url = "";
+    let settled = false;
+    const el = document.createElement(/^video\//.test(file.type) ? "video" : "audio");
+    const finish = (sec) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      el.removeAttribute("src");
+      if (url) URL.revokeObjectURL(url);
+      resolve(Number.isFinite(sec) && sec > 0 ? sec : 0);
+    };
+    const timer = setTimeout(() => finish(0), 8000);
+    el.preload = "metadata";
+    el.onloadedmetadata = () => finish(el.duration);
+    el.onerror = () => finish(0);
+    try { url = URL.createObjectURL(file); el.src = url; el.load(); } catch { finish(0); }
+  });
+}
+function addRecording(f) {
+  const imp = state.imp;
+  const rec = { file: f, name: f.name || "recording", size: f.size, seconds: 0, busy: false, sent: 0, stop: null };
+  imp.rec = rec;
+  if (!imp.title) imp.title = rec.name.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ").trim();
+  mediaSeconds(f).then((sec) => {
+    if (state.imp !== imp || imp.rec !== rec) return;
+    rec.seconds = sec;
+    // A recording's file is saved when it ends, so the meeting started that long before.
+    if (!imp.whenSet && f.lastModified) {
+      imp.when = localDT(new Date(f.lastModified - sec * 1000));
+      const w = $("#iWhen");
+      if (w) w.value = imp.when;
+    }
+    if (state.route === "import") { renderRecordingChip(); renderImportPreview(); }
+  });
+}
 function mediaHelp(imp) {
   return h("div", { class: "media-help" },
     h("strong", null, `${imp.media.join(", ")} ${imp.media.length === 1 ? "is a recording" : "are recordings"}. Turn it into a transcript first.`),
-    h("span", null, "This page can't listen to a file, but any of these gives you a transcript to add here:"),
+    h("span", null, "This page can't listen to a file here, but any of these gives you a transcript to add:"),
     h("ol", null,
+      h("li", null, "AllKnowing on your Mac mini: open it from the Mac mini's own link and import the recording there. It's turned into text for you, with the voices told apart."),
       h("li", null, "Recordly, the desktop app (version 1.4.2 or later): right-click its icon in the taskbar or Dock, choose Transcribe a recording… and pick the file. It's transcribed on your own computer and saved as a .txt and an .srt next to the recording. Paste the text below or add the .srt."),
       h("li", null, "A Teams meeting that had transcription on: use “From a Teams meeting”."),
       h("li", null, "Phone apps that transcribe, such as Otter or 飞书妙记: export the transcript as text and add it here.")),
@@ -2622,8 +2885,9 @@ function renderImport() {
   const imp = state.imp;
   const fileInput = h("input", { type: "file", multiple: true, accept: ".txt,.md,.srt,.vtt,.docx,.json,.csv,.log," + MEDIA_EXT.map((e) => "." + e).join(","), style: "display:none", onchange: (e) => { handleImportFiles(e.target.files); e.target.value = ""; } });
   const drop = h("div", { class: "drop" },
-    h("p", null, h("strong", null, "Drop transcript files here")),
-    h("p", { class: "muted small-text" }, ".txt, .srt, .vtt, .docx or .json. Exports from Teams, Zoom, Otter, 飞书妙记 and Whisper all work."),
+    h("p", null, h("strong", null, cap.transcribe ? "Drop a recording or a transcript here" : "Drop transcript files here")),
+    cap.transcribe ? h("p", { class: "muted small-text" }, "A recording (.mp3, .m4a, .wav, .mp4 and most others) is turned into text for you.") : null,
+    h("p", { class: "muted small-text" }, `${cap.transcribe ? "Transcripts: " : ""}.txt, .srt, .vtt, .docx or .json. Exports from Teams, Zoom, Otter, 飞书妙记 and Whisper all work.`),
     h("div", { class: "row", style: "justify-content:center" },
       h("button", { type: "button", class: "btn", onclick: () => fileInput.click() }, "Choose files"),
       cap.mcp ? h("button", { type: "button", class: "btn", onclick: openTeamsPicker }, "From a Teams meeting") : null),
@@ -2641,26 +2905,137 @@ function renderImport() {
     h("div", { class: "card-head" }, h("h2", null, "About the meeting")),
     h("div", { class: "field" }, h("label", { for: "iTitle" }, "Meeting"), h("input", { id: "iTitle", value: imp.title, placeholder: "e.g. Board call, 12 Nov", oninput: (e) => { imp.title = e.target.value; } })),
     h("div", { class: "two" },
-      h("div", { class: "field" }, h("label", { for: "iWhen" }, "When it happened"), h("input", { id: "iWhen", type: "datetime-local", value: imp.when, oninput: (e) => { imp.when = e.target.value; } })),
+      h("div", { class: "field" }, h("label", { for: "iWhen" }, "When it happened"), h("input", { id: "iWhen", type: "datetime-local", value: imp.when, oninput: (e) => { imp.when = e.target.value; imp.whenSet = true; } })),
       h("div", { class: "field" }, h("label", { for: "iLang" }, "Language"), selectEl("iLang", MEETING_LANGS, imp.lang, (val) => { imp.lang = val; }))),
     h("div", { class: "field" }, h("label", { for: "iAtt" }, "Who was there"), h("input", { id: "iAtt", value: imp.attendees, placeholder: "Names and emails, comma-separated", oninput: (e) => { imp.attendees = e.target.value; } })),
     h("div", { class: "field" }, h("label", { for: "iGoal" }, "What you wanted out of it (optional)"), h("input", { id: "iGoal", value: imp.goal, oninput: (e) => { imp.goal = e.target.value; } })));
-  const transcript = h("div", { class: "card form" },
-    h("div", { class: "card-head" }, h("h2", null, "Transcript")),
-    imp.media.length ? mediaHelp(imp) : null,
-    drop,
-    imp.files.length ? fileList : null,
-    h("div", { class: "field" }, h("label", { for: "impText" }, "Or paste it"), paste));
+  // With a recording added, that's the whole import: its transcript is what the Mac mini makes of it.
+  const transcript = imp.rec
+    ? h("div", { class: "card form" },
+        h("div", { class: "card-head" }, h("h2", null, "Recording")),
+        h("div", { id: "recChip" }),
+        h("p", { class: "muted small-text", style: "margin:0" }, "Have its transcript already? Remove the recording and add that instead."))
+    : h("div", { class: "card form" },
+        h("div", { class: "card-head" }, h("h2", null, cap.transcribe ? "Recording or transcript" : "Transcript")),
+        imp.media.length ? mediaHelp(imp) : null,
+        drop,
+        imp.files.length ? fileList : null,
+        h("div", { class: "field" }, h("label", { for: "impText" }, cap.transcribe ? "Or paste a transcript" : "Or paste it"), paste));
   v.append(h("div", { class: "prep-grid" }, h("div", { class: "stack" }, details, transcript), h("div", { class: "card stack", id: "impPreview" })));
+  renderRecordingChip();
   renderImportPreview();
+}
+function renderRecordingChip() {
+  const box = $("#recChip");
+  const imp = state.imp;
+  const r = imp && imp.rec;
+  if (!box || !r) return;
+  box.replaceChildren(h("div", { class: "file-chip" },
+    h("span", null, r.name, h("span", { class: "muted" }, ` · ${[r.seconds ? fmtDuration(r.seconds) : "", fmtSize(r.size)].filter(Boolean).join(" · ")}`)),
+    r.busy ? null : h("button", { type: "button", class: "btn small ghost", onclick: () => { imp.rec = null; renderImport(); } }, "Remove")));
+}
+// What happens to a recording, what it costs, and the two ways to go.
+function renderRecordingPanel(box, imp) {
+  const r = imp.rec;
+  const usd = (r.seconds / 3600) * 0.1;
+  const cost = r.seconds ? ` This one comes to ${usd < 0.01 ? "under US$0.01" : `about US$${usd.toFixed(2)}`}.` : "";
+  box.replaceChildren(
+    h("div", { class: "card-head" }, h("h2", null, "Turn it into text")),
+    h("p", { style: "margin:0" }, "Your Mac mini sends the recording to Soniox, which turns it into text and tells the voices apart. Then Claude writes the minutes and works out who's who from what was said."),
+    h("p", { class: "muted small-text", style: "margin:0" }, `Soniox charges about US$0.10 for an hour of audio, on your own Soniox account.${cost} The audio is deleted from Soniox and from the Mac mini as soon as the text is back.`));
+  const why = cap.transcribe.unavailable;
+  if (why) { box.append(h("div", { class: "banner" }, h("span", null, why))); return; }
+  if (r.busy) {
+    box.append(
+      h("div", { class: "meter", role: "progressbar", "aria-label": "Sending the recording to your Mac mini", "aria-valuemin": "0", "aria-valuemax": "100" }, h("span", { id: "recBar" })),
+      h("p", { id: "recStatus", class: "status-line busy", style: "margin:0", role: "status" }),
+      h("div", { class: "row" }, h("button", { type: "button", class: "btn", onclick: () => { if (r.stop) r.stop.abort(); } }, "Stop")));
+    showRecProgress();
+    return;
+  }
+  box.append(
+    h("div", { class: "row" },
+      h("button", { type: "button", class: "btn primary", onclick: () => importRecording(true) }, "Transcribe and write the minutes"),
+      h("button", { type: "button", class: "btn", onclick: () => importRecording(false) }, "Transcribe only")),
+    h("p", { class: "muted small-text", style: "margin:0" }, "Keep this open while the recording goes to your Mac mini. After that you can close AllKnowing: the meeting is in your list, and its transcript is there when you open it."));
+}
+function showRecProgress() {
+  const r = state.imp && state.imp.rec;
+  if (!r) return;
+  const pct = r.size ? Math.min(100, Math.floor((r.sent / r.size) * 100)) : 0;
+  const bar = $("#recBar");
+  const line = $("#recStatus");
+  if (bar) { bar.style.width = `${pct}%`; bar.parentElement.setAttribute("aria-valuenow", String(pct)); }
+  if (line) line.textContent = `Sending it to your Mac mini… ${pct}%`;
+}
+// Sends the recording to the Mac mini. Once it's all there the meeting is made, marked as being
+// transcribed; whichever device opens it sees how that's going, and gets the transcript when it's done.
+async function importRecording(writeMinutes) {
+  const imp = state.imp;
+  const rec = imp && imp.rec;
+  if (!rec || rec.busy || !cap.transcribe) return;
+  if (isListening()) { toast("Stop listening before importing.", "warn"); return; }
+  rec.busy = true;
+  rec.sent = 0;
+  rec.stop = new AbortController();
+  renderRecordingChip();
+  renderImportPreview();
+  let job;
+  try {
+    job = await cap.transcribe.send(rec.file, {
+      language: speechLang(imp.lang),
+      terms: namesIn(imp.attendees),
+      topic: [imp.title, imp.goal].filter(Boolean).join(". ").slice(0, 300),
+      signal: rec.stop.signal,
+      onProgress: (sent) => { rec.sent = sent; showRecProgress(); },
+    });
+  } catch (e) {
+    rec.busy = false;
+    const byUser = rec.stop.signal.aborted;
+    toast(byUser ? "Stopped. Nothing went to Soniox." : (e && (e.userMessage || e.message)) || "Couldn't get the recording to your Mac mini.", byUser ? "" : "bad", 7000);
+    if (state.imp === imp && state.route === "import") { renderRecordingChip(); renderImportPreview(); }
+    return;
+  }
+  const when = imp.when ? new Date(imp.when) : new Date();
+  const startedAt = Number.isNaN(when.getTime()) ? Date.now() : when.getTime();
+  const now = Date.now();
+  const seconds = rec.seconds || Number(job && job.duration) || 0;
+  const m = normalizeMeeting({
+    id: uid(), mode: "meeting",
+    title: imp.title.trim() || `Recording ${new Date(startedAt).toLocaleDateString()}`,
+    createdAt: now, updatedAt: now, status: "transcribing", startedAt, endedAt: seconds ? startedAt + Math.round(seconds * 1000) : null,
+    source: "import", sourceName: rec.name.slice(0, 200), recSeconds: seconds,
+    job: { id: job.id, minutes: !!writeMinutes, at: now },
+    prep: { attendees: imp.attendees, goal: imp.goal, lang: imp.lang, when: fmtDate(startedAt) },
+  });
+  if (state.imp === imp) state.imp = freshImport();
+  // Somewhere else by now (or listening to another meeting): it goes on the list without taking over.
+  if (isListening() || state.route !== "import") {
+    const dirty = state.dirtyMeeting;
+    await saveMeeting(m);
+    state.dirtyMeeting = state.dirtyMeeting || dirty;
+    toast(`“${titleOf(m)}” is with your Mac mini. Open it from your list to see the transcript.`, "good", 7000);
+    if (state.route === "import") renderImport();
+    return;
+  }
+  await flushSaves();
+  state.cur = m;
+  resetLiveRuntime();
+  await saveMeeting(m);
+  safeLocalSet("lastMeeting", m.id);
+  state.job = { m, st: job, watching: false };
+  go("after");
 }
 function renderImportPreview() {
   const box = $("#impPreview");
   if (!box) return;
+  if (state.imp && state.imp.rec && cap.transcribe) { renderRecordingPanel(box, state.imp); return; }
   const p = state.imp && state.imp.parsed;
   box.replaceChildren(h("div", { class: "card-head" }, h("h2", null, "Preview")));
   if (!p || !p.segs.length) {
-    box.append(h("p", { class: "empty" }, "Add a transcript and you'll see what AllKnowing found here: lines, speakers and length. Then import it for minutes, follow-ups and calendar holds."));
+    box.append(h("p", { class: "empty" }, cap.transcribe
+      ? "Add a recording and your Mac mini turns it into text. Or add a transcript and you'll see what AllKnowing found here: lines, speakers and length. Either way you get minutes, follow-ups and calendar holds."
+      : "Add a transcript and you'll see what AllKnowing found here: lines, speakers and length. Then import it for minutes, follow-ups and calendar holds."));
     return;
   }
   box.append(h("div", { class: "stat-row" },
@@ -2731,7 +3106,7 @@ function openTeamsPicker() {
       imp.files.push({ name: `Teams · ${ev.subject || "meeting"}`, text: text.slice(0, 4000000) });
       if (!imp.title) imp.title = ev.subject || "";
       const d = evDate(ev.start);
-      if (d) imp.when = localDT(d);
+      if (d) { imp.when = localDT(d); imp.whenSet = true; }
       const att = attendeesText(ev);
       if (att && !imp.attendees) imp.attendees = att;
       imp.source = "teams";

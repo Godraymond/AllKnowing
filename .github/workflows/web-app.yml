@@ -44,6 +44,9 @@ jobs:
       - name: Check the Mac mini's server
         run: node assistant/check-hub.cjs
 
+      - name: Check recordings turned into text
+        run: node assistant/check-recordings.cjs
+
       - name: Check the Mac relay
         run: node assistant/check-relay.cjs
 

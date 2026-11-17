@@ -16,7 +16,8 @@
    Served by the Mac mini (hub/hub.cjs, which marks the page with <meta name="allknowing-hub">), it works
    differently: the meetings live on the Mac mini (`db`, shared by every device that has the pairing code),
    and the keys stay there too. Claude is asked through the Mac mini, and listening gets a one-use key
-   from it for each connection.
+   from it for each connection. It also takes recordings there (`transcribe`): the Mac mini has Soniox
+   turn the file into text.
    The build (assistant/build-web.cjs) adds this file to the page; the artifact never loads it. */
 (() => {
 	if (window.claude) return;
@@ -418,6 +419,135 @@
 			);
 		return j.api_key;
 	}
+
+	/* ---------- recordings: the Mac mini has them turned into text ----------
+	   A recording goes to the Mac mini a few megabytes at a time, so a phone on a patchy connection carries
+	   on from where it got to. From there the Mac mini does the rest by itself (it has Soniox turn the audio
+	   into text, with the key it keeps), and the page asks how it's going, then takes the text. */
+	const txUrl = (id, rest = "") => `/api/transcribe/${enc(id)}${rest}`;
+	// Says which open page took a transcript to save, so the same page can take it again if it has to.
+	const THIS_PAGE = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+	// The languages to expect, as for listening: Chinese meetings drop English words in all the time.
+	function speechHints(language) {
+		const lang = String(language || "").toLowerCase();
+		if (!lang) return [];
+		return lang.startsWith("zh") ? ["zh", "en"] : [lang.slice(0, 2)];
+	}
+	const stoppedByUser = () => {
+		const e = new Error("Stopped.");
+		e.name = "AbortError";
+		return e;
+	};
+	const transcribe = {
+		// Why a recording can't be sent right now, in words for the user ("" when it can).
+		get unavailable() {
+			if (hub.state !== "ok" || !hub.status)
+				return hubMissing() || "Checking with your Mac mini…";
+			if ((Number(hub.status.api) || 1) < 2)
+				return "Your Mac mini needs the latest version of AllKnowing before it can turn recordings into text. Get it in the “Mac mini” box on the Home screen.";
+			if (!hub.status.speech)
+				return "Add your Soniox speech key in the “Mac mini” box on the Home screen first. It's what turns recordings into text.";
+			return "";
+		},
+		// Sends the file and starts the work. Resolves with the job once the Mac mini has all of it.
+		async send(file, { language = "", terms = [], topic = "", onProgress, signal } = {}) {
+			const made = await (
+				await hubOk("/api/transcribe", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						name: file.name || "recording",
+						size: file.size,
+						hints: speechHints(language),
+						terms,
+						topic,
+					}),
+					signal,
+				})
+			).json();
+			const id = made.id;
+			const step = Math.max(64 * 1024, Number(made.chunk) || 4 * 1024 * 1024);
+			try {
+				let at = 0;
+				let stuck = 0;
+				while (at < file.size) {
+					if (signal && signal.aborted) throw stoppedByUser();
+					const piece = file.slice(at, Math.min(file.size, at + step));
+					let res = null;
+					try {
+						res = await hubFetch(txUrl(id, `/data?at=${at}`), {
+							method: "PUT",
+							headers: { "content-type": "application/octet-stream" },
+							body: piece,
+							signal,
+						});
+					} catch (e) {
+						if (e && (e.name === "AbortError" || e.code === "unauthenticated")) throw e;
+						if (e && e.code === "rate_limited") throw e;
+					}
+					const j = res ? await res.json().catch(() => ({})) : {};
+					// The Mac mini says how much it has, whether or not this piece went in: carry on from there.
+					const have = Number(j.received);
+					const moved = Number.isFinite(have) && have !== at;
+					if (Number.isFinite(have)) at = Math.max(0, Math.min(file.size, have));
+					else if (res && res.ok) at += piece.size;
+					if (res && (res.ok || moved)) {
+						stuck = 0;
+						if (onProgress) onProgress(at, file.size);
+						continue;
+					}
+					if (res && res.status === 404)
+						throw fail(
+							"not_found",
+							"Your Mac mini lost track of this recording. Send it again.",
+						);
+					if (res && res.status === 413)
+						throw fail("too_big", (j.error && j.error.message) || "That's too big.");
+					if (++stuck > 6)
+						throw fail(
+							"unavailable",
+							(j.error && j.error.message) ||
+								"Couldn't get the recording to your Mac mini. Check the connection, then try again.",
+						);
+					await sleep(500 * 2 ** stuck);
+				}
+				return await (await hubOk(txUrl(id, "/start"), { method: "POST", signal })).json();
+			} catch (e) {
+				// Stopped or failed part way: the Mac mini needn't keep half a recording.
+				hubFetch(txUrl(id), { method: "DELETE" }).catch(() => null);
+				throw e;
+			}
+		},
+		// How it's going: { state: "queued" | "preparing" | "sending" | "transcribing" | "done" | "error" | "missing", … }
+		async status(id) {
+			const res = await hubFetch(txUrl(id));
+			if (res.status === 404) return { id, state: "missing" };
+			if (!res.ok) throw fail("unavailable", `Your Mac mini said no (${res.status}).`);
+			return res.json();
+		},
+		// After an error: once more from where it stopped.
+		retry: async (id) => (await hubOk(txUrl(id, "/start"), { method: "POST" })).json(),
+		// The text, for the one device that saves it. { claimed: true } when another device is doing that.
+		async claim(id) {
+			const res = await hubFetch(txUrl(id, "/claim"), {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ by: THIS_PAGE }),
+			});
+			const j = await res.json().catch(() => ({}));
+			if (res.ok) return j;
+			if (res.status === 409 && j.claimed) return { claimed: true };
+			throw fail(
+				res.status === 404 || res.status === 410 ? "not_found" : "unavailable",
+				(j.error && j.error.message) || `Your Mac mini said no (${res.status}).`,
+			);
+		},
+		// Saved, or not wanted: the Mac mini drops its copy (and stops, if it was still going).
+		async forget(id) {
+			const res = await hubFetch(txUrl(id), { method: "DELETE" });
+			return res.ok || res.status === 404;
+		},
+	};
 
 	/* ---------- Claude (Anthropic Messages API) ---------- */
 	// The relay on the Mac answers like the API, so both go the same way; the Mac takes its pairing code as the key.
@@ -1912,7 +2042,7 @@ registerProcessor("ak-pcm", AkPcm);`;
 					el(
 						"span",
 						null,
-						"Turns sound into words and tells the voices apart. From ",
+						"Turns sound into words and tells the voices apart, live and for recordings you import. From ",
 						link("https://console.soniox.com", "console.soniox.com"),
 						". It hears the audio.",
 					),
@@ -1978,7 +2108,9 @@ registerProcessor("ak-pcm", AkPcm);`;
 		use: async (name) => {
 			if (!HUB) return { sample, dictation, downloads }[name] || null;
 			await hubStart();
-			return { sample, dictation, downloads, db: hubDb, user: hubUser }[name] || null;
+			return (
+				{ sample, dictation, downloads, db: hubDb, user: hubUser, transcribe }[name] || null
+			);
 		},
 		homeCard: () => {
 			if (!HUB) return homeCard();

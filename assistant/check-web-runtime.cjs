@@ -686,6 +686,13 @@ vm.runInNewContext(code, sandbox);
 		keys: { claude: true, speech: true },
 		watchers: [],
 		temp: 0,
+		api: 2,
+		// Recordings: what has arrived of each, and ways for a piece to go wrong on the way.
+		jobs: new Map(),
+		lose: 0, // pieces that never arrive (the connection fails)
+		half: 0, // pieces of which only half arrives before the connection fails
+		refuse: 0, // answer every piece with this status
+		piece: 65536,
 	};
 	const resp = (status, body) => ({
 		ok: status < 300,
@@ -706,6 +713,7 @@ vm.runInNewContext(code, sandbox);
 		if (headers["x-api-key"] !== CODE) return resp(401, { error: { message: "no" } });
 		if (u.pathname === "/api/status")
 			return resp(200, {
+				api: hub.api,
 				claude: hub.keys.claude,
 				speech: hub.keys.speech,
 				code: CODE,
@@ -768,6 +776,58 @@ vm.runInNewContext(code, sandbox);
 			return { ok: true, status: 200, body: { getReader: () => reader } };
 		}
 		if (u.pathname === "/v1/messages") return fakeFetch(url, init);
+		const rec = /^\/api\/transcribe(?:\/([^/]+)(?:\/([a-z]+))?)?$/.exec(u.pathname);
+		if (rec) {
+			const method = init.method || "GET";
+			if (init.signal && init.signal.aborted)
+				throw Object.assign(new Error("aborted"), { name: "AbortError" });
+			if (!rec[1]) {
+				const asked = JSON.parse(init.body);
+				const id = `job${hub.jobs.size + 1}`;
+				hub.jobs.set(id, { id, asked, got: [], state: "receiving", claimedBy: "" });
+				return resp(200, { id, state: "receiving", chunk: hub.piece });
+			}
+			const job = hub.jobs.get(rec[1]);
+			if (!job) return resp(404, { error: { message: "gone" } });
+			const have = job.got.reduce((n, b) => n + b.length, 0);
+			if (rec[2] === "data") {
+				if (hub.refuse)
+					return resp(hub.refuse, { error: { message: "No room." }, received: have });
+				if (hub.lose > 0) {
+					hub.lose--;
+					throw new TypeError("Failed to fetch");
+				}
+				if (Number(u.searchParams.get("at")) !== have)
+					return resp(409, { error: { message: "elsewhere" }, received: have });
+				if (hub.half > 0) {
+					hub.half--;
+					job.got.push(init.body.subarray(0, init.body.length >> 1));
+					throw new TypeError("Failed to fetch");
+				}
+				job.got.push(init.body);
+				return resp(200, { received: have + init.body.length });
+			}
+			if (rec[2] === "start") {
+				if (job.state === "receiving" || job.state === "error") job.state = "queued";
+				return resp(200, { id: job.id, state: job.state });
+			}
+			if (rec[2] === "claim") {
+				const by = JSON.parse(init.body).by;
+				if (job.claimedBy && job.claimedBy !== by)
+					return resp(409, { error: { message: "taken" }, claimed: true });
+				job.claimedBy = by;
+				return resp(200, {
+					lines: [{ t: 0, v: 1, text: "Hello." }],
+					duration: 3,
+					voices: 1,
+				});
+			}
+			if (method === "DELETE") {
+				hub.jobs.delete(job.id);
+				return resp(200, { ok: true });
+			}
+			return resp(200, { id: job.id, state: job.state, parts: 1, part: 0 });
+		}
 		return resp(404, {});
 	};
 	const hubStore = new Map([["allknowing:keys:v1", JSON.stringify({})]]);
@@ -908,6 +968,162 @@ vm.runInNewContext(code, sandbox);
 		"on a link that isn't secure, listening explains which link to use",
 		/https:\/\/mac\.ts\.net/.test(pd.unavailable) && insecure && insecure.code === "insecure",
 	);
+
+	// ---- recordings: sent to the Mac mini piece by piece, then followed and taken ----
+	ok(
+		"outside the Mac mini there is no way to send a recording",
+		(await sandbox.claude.use("transcribe")) === null,
+	);
+	const tx = await paired.claude.use("transcribe");
+	ok(
+		"on the Mac mini there is, and it's ready",
+		!!tx && tx.unavailable === "",
+		tx && tx.unavailable,
+	);
+	const sound = Buffer.from(Array.from({ length: 300000 }, (_, i) => (i * 7 + (i >> 8)) & 255));
+	const recording = (name = "Board call.mp3") => ({
+		name,
+		size: sound.length,
+		slice: (a, b) => sound.subarray(a, b),
+	});
+	const steps = [];
+	const sentJob = await tx.send(recording(), {
+		language: "zh-HK",
+		terms: ["Priya", "Tom"],
+		topic: "Launch timing",
+		onProgress: (at, of) => steps.push(`${at}/${of}`),
+	});
+	const job1 = hub.jobs.get(sentJob.id);
+	ok(
+		"a recording goes in pieces of the size the Mac mini asks for, all of it, in order",
+		job1.got.length === 5 &&
+			Buffer.concat(job1.got).equals(sound) &&
+			job1.got[0].length === 65536 &&
+			sentJob.state === "queued",
+		`${job1.got.length} pieces, ${Buffer.concat(job1.got).length} bytes, ${sentJob.state}`,
+	);
+	ok(
+		"…saying what it is, how big, the languages to expect, the names and the subject",
+		job1.asked.name === "Board call.mp3" &&
+			job1.asked.size === 300000 &&
+			job1.asked.hints.join() === "zh,en" &&
+			job1.asked.terms.join() === "Priya,Tom" &&
+			job1.asked.topic === "Launch timing",
+		JSON.stringify(job1.asked),
+	);
+	ok(
+		"…and reporting how far it has got",
+		steps.length === 5 && steps[0] === "65536/300000" && steps[4] === "300000/300000",
+		steps.join(" "),
+	);
+	ok(
+		"each piece carries the pairing code",
+		hub.calls
+			.filter((c) => /\/data$/.test(c.path))
+			.every((c) => c.headers["x-api-key"] === CODE),
+	);
+	hub.lose = 1;
+	hub.half = 1;
+	const patchy = await tx.send(recording("Patchy.m4a"), { language: "en" });
+	const job2 = hub.jobs.get(patchy.id);
+	ok(
+		"on a patchy line (a piece lost, another cut half way) it carries on from where the Mac mini got to",
+		Buffer.concat(job2.got).equals(sound) && hub.lose === 0 && hub.half === 0,
+		`${Buffer.concat(job2.got).length} bytes in ${job2.got.length} pieces`,
+	);
+	ok("English only is said as that", job2.asked.hints.join() === "en");
+	const plainSend = await tx.send(recording("No language.wav"));
+	ok(
+		"no language set: none is claimed",
+		hub.jobs.get(plainSend.id).asked.hints.length === 0 &&
+			hub.jobs.get(plainSend.id).asked.terms.length === 0,
+	);
+	// Stopped by the user part way.
+	const stopper = new AbortController();
+	let stoppedWith = null;
+	const jobsBefore = hub.jobs.size;
+	try {
+		await tx.send(recording("Stopped.mp3"), {
+			signal: stopper.signal,
+			onProgress: (at) => {
+				if (at >= 131072) stopper.abort();
+			},
+		});
+	} catch (e) {
+		stoppedWith = e;
+	}
+	await sleep(20);
+	ok(
+		"stopped part way: it ends there, and the Mac mini is told to drop what it has",
+		stoppedWith && stoppedWith.name === "AbortError" && hub.jobs.size === jobsBefore,
+		`${stoppedWith && stoppedWith.name}; ${hub.jobs.size - jobsBefore} left`,
+	);
+	hub.refuse = 413;
+	let tooBig = null;
+	try {
+		await tx.send(recording("Huge.mp4"));
+	} catch (e) {
+		tooBig = e;
+	}
+	await sleep(20);
+	hub.refuse = 0;
+	ok(
+		"refused as too big: says so, and nothing is left behind",
+		tooBig &&
+			tooBig.code === "too_big" &&
+			tooBig.userMessage === "No room." &&
+			hub.jobs.size === jobsBefore,
+		tooBig && `${tooBig.code}: ${tooBig.userMessage}`,
+	);
+	ok("how it's going", (await tx.status(sentJob.id)).state === "queued");
+	job1.state = "error";
+	ok("after an error, once more", (await tx.retry(sentJob.id)).state === "queued");
+	job1.state = "done";
+	const took = await tx.claim(sentJob.id);
+	ok("the text is taken by this page", took.lines[0].text === "Hello." && !!job1.claimedBy);
+	ok(
+		"…which can take it again if saving went wrong",
+		(await tx.claim(sentJob.id)).duration === 3,
+	);
+	job1.claimedBy = "another page";
+	ok(
+		"another page has it: this one is told so, not handed a second copy",
+		(await tx.claim(sentJob.id)).claimed === true,
+	);
+	ok(
+		"saved: the Mac mini's copy is dropped",
+		(await tx.forget(sentJob.id)) === true && !hub.jobs.has(sentJob.id),
+	);
+	ok(
+		"one that's gone is reported as missing, not as an error",
+		(await tx.status(sentJob.id)).state === "missing",
+	);
+	let goneClaim = null;
+	try {
+		await tx.claim(sentJob.id);
+	} catch (e) {
+		goneClaim = e;
+	}
+	ok("…and taking it says it isn't there", goneClaim && goneClaim.code === "not_found");
+	ok("forgetting it twice is fine", (await tx.forget(sentJob.id)) === true);
+	hub.api = 1;
+	const oldHub = onHub();
+	const oldTx = await oldHub.claude.use("transcribe");
+	ok(
+		"a Mac mini that hasn't been updated: says to get the latest version",
+		/needs the latest version/.test(oldTx.unavailable),
+		oldTx.unavailable,
+	);
+	hub.api = 2;
+	hub.keys.speech = false;
+	const keyless = onHub();
+	const keylessTx = await keyless.claude.use("transcribe");
+	ok(
+		"no speech key on the Mac mini: says to add it",
+		/Add your Soniox speech key/.test(keylessTx.unavailable),
+		keylessTx.unavailable,
+	);
+	hub.keys.speech = true;
 
 	console.log(fails ? `\n${fails} FAILED` : "\nALL PASS");
 	process.exit(fails ? 1 : 0);

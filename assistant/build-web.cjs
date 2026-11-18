@@ -17,7 +17,7 @@ const crypto = require("node:crypto");
 // What this page expects of the Mac mini's server (HUB_API in hub/hub.cjs). Raise both together when the
 // page starts using something new there, so an older hub waits for its own update instead.
 // 2: recordings turned into text (/api/transcribe).
-const HUB_API = 2;
+const HUB_API = 3;
 
 const src = __dirname;
 const web = path.join(src, "web");
@@ -61,7 +61,7 @@ for (const name of [
 }
 // The Mac mini's server and its installer, fetched from here by the installer and by the hub's updates.
 fs.mkdirSync(path.join(out, "hub"), { recursive: true });
-for (const name of ["hub.cjs", "install.sh"])
+for (const name of ["hub.cjs", "speech.cjs", "install.sh"])
 	fs.copyFileSync(path.join(src, "hub", name), path.join(out, "hub", name));
 // GitHub Pages: serve the files as they are.
 fs.writeFileSync(path.join(out, ".nojekyll"), "");

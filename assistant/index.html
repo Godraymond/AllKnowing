@@ -168,6 +168,7 @@ main { padding: 20px; max-width: 1480px; margin: 0 auto; }
 .seg .meta { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
 .seg .sp { font-weight: 700; margin-right: 6px; }
 .seg .sp.unsure { color: var(--muted); }
+.seg .doubt { text-decoration: underline dotted; text-decoration-color: var(--muted); text-underline-offset: 3px; cursor: help; }
 .seg button.sp.voice { border: 0; background: none; padding: 0; font: inherit; font-weight: 700; color: inherit; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
 .seg button.sp.voice.unsure { color: var(--muted); }
 .seg.note { color: var(--warn); }
@@ -1318,10 +1319,25 @@ function txLines(m, maxBytes) {
     if (s.kind === "event") return `${ts} — ${s.text} —`;
     if (s.kind === "note") return `${ts} (note) ${s.text}`;
     const who = [s.sp ? s.sp + (s.by === "ai" && (s.c || 0) < 60 ? "?" : "") : "", s.v > 0 ? "v" + s.v : ""].filter(Boolean).join(" ");
-    return `${ts} ${who ? "[" + who + "] " : ""}${s.text}`;
+    return `${ts} ${who ? "[" + who + "] " : ""}${withDoubts(s)}`;
   });
   return tailByBytes(lines.join("\n"), maxBytes);
 }
+// A recording heard by several speech models: where no two of them agreed, a line keeps the other
+// readings (alt: [[start, end, [readings]]]). Claude is shown them in place, as {kept / other / other}.
+const altsOf = (s) => (Array.isArray(s.alt) ? s.alt : []).filter((a) => Array.isArray(a) && a[0] >= 0 && a[1] > a[0] && a[1] <= s.text.length && Array.isArray(a[2]) && a[2].length).sort((x, y) => x[0] - y[0]);
+function withDoubts(s) {
+  let out = "";
+  let at = 0;
+  for (const [a, b, others] of altsOf(s)) {
+    if (a < at) continue;
+    out += `${s.text.slice(at, a)}{${[s.text.slice(a, b), ...others].join(" / ")}}`;
+    at = b;
+  }
+  return out + s.text.slice(at);
+}
+const hasDoubts = (m) => m.segs.some((s) => s.alt && s.alt.length);
+const DOUBT_NOTE = "Where a line has {a / b / c}, the speech models heard different words there: a is the reading that was kept, the rest are what another model heard. Take whichever fits what is being said (a name from the attendees, a figure that makes sense), and be careful with a name, number or date that only appears inside { }.";
 // Said to Claude when the transcript carries voice numbers.
 const VOICE_NOTE = "vN in a tag is the voice the speech service heard for that line. The same number is nearly always the same person from start to finish, and different numbers are usually different people, though the service sometimes gives one person two numbers or lets two people share one.";
 // Two ways one person ends up with two numbers, said when they apply: listening that stopped and started
@@ -1418,11 +1434,12 @@ function promptMinutes(m) {
     "", meetingContext(m), "",
     m.live ? "LAST LIVE PICTURE (JSON):\n" + headByBytes(JSON.stringify(m.live), 8000) + "\n" : "",
     m.transcribed
-      ? `FULL TRANSCRIPT (a speech service's text of the recording ${m.sourceName || ""}: expect misheard words, names above all; times are from the start of the recording):`
+      ? `FULL TRANSCRIPT (${m.transcribed.by === "Mac mini" ? "three speech models' text of the recording, checked against each other" : "a speech service's text of the recording"} ${m.sourceName || ""}: expect misheard words, names above all; times are from the start of the recording):`
       : m.source === "import"
         ? `FULL TRANSCRIPT (imported from ${m.sourceName || "a file"}; it may be machine-transcribed, so expect misheard words; [Name] marks speakers where the file named them; times are from the start of the recording):`
         : "FULL TRANSCRIPT (speech-to-text: expect misheard words; [Name] marks speakers when tagged; (note) lines are the user's notes):",
     ...(voices ? [`${voiceNote(m)} A tag with only vN is a voice nobody has named: work out who it is from what's said where you can, and otherwise keep that person's points together.`] : []),
+    ...(hasDoubts(m) ? [DOUBT_NOTE] : []),
     m.segs.length ? txLines(m, MINUTES_TRANSCRIPT_BYTES) : "(no transcript)",
     "",
     "Reply with only a JSON object in exactly this shape:",
@@ -1978,7 +1995,22 @@ function segEl(s) {
   return h("div", { class: "seg" + (s.kind === "note" ? " note" : "") },
     h("span", { class: "meta" }, fmtClock(s.t)),
     s.kind === "note" ? h("span", { class: "sp" }, "Note") : speakerTag(s),
-    h("span", { class: "tx" }, s.text));
+    h("span", { class: "tx" }, doubtParts(s)));
+}
+// The line's text, with the words the speech models didn't agree on marked; a tap says what else was heard.
+function doubtParts(s) {
+  const alts = altsOf(s);
+  if (!alts.length) return s.text;
+  const out = [];
+  let at = 0;
+  for (const [a, b, others] of alts) {
+    if (a < at) continue;
+    const said = `The speech models didn't agree here. Also heard: ${others.join(" · ")}`;
+    out.push(s.text.slice(at, a), h("span", { class: "doubt", title: said, onclick: () => toast(said, "", 6000) }, s.text.slice(a, b)));
+    at = b;
+  }
+  out.push(s.text.slice(at));
+  return out;
 }
 function speakerTag(s) {
   const m = state.cur;
@@ -2149,14 +2181,22 @@ async function saveFile(filename, data) {
    device that opens the meeting can do that, so the one that sent the recording can be put away. */
 const pauseFor = (ms) => new Promise((r) => setTimeout(r, ms));
 // What to say about a recording's progress, and how the line should look.
+const STAGE_WORDS = { first: "the first model is listening", second: "the second model is listening", judge: "the third model is listening, the careful one", voices: "telling the voices apart" };
 function jobLine(st) {
   if (!st) return ["Checking with your Mac mini…", "busy"];
   const part = st.parts > 1 ? ` (part ${Math.min(st.parts, (st.part || 0) + 1)} of ${st.parts})` : "";
+  const own = st.engine === "local";
   switch (st.state) {
     case "queued": return [st.waiting > 0 ? "Waiting for another recording to finish first…" : "Starting…", "busy"];
     case "preparing": return ["Getting the audio ready…", "busy"];
     case "sending": return [`Sending the audio to Soniox${part}…`, "busy"];
-    case "transcribing": return [`Soniox is turning it into text${part}…`, "busy"];
+    case "transcribing": {
+      if (!own) return [`Soniox is turning it into text${part}…`, "busy"];
+      const pct = Math.max(0, Math.min(99, Math.round((Number(st.progress) || 0) * 100)));
+      const left = Number(st.left) || 0;
+      const time = left > 90 ? `, about ${Math.ceil(left / 60)} min left` : left > 0 && pct > 5 ? ", a minute or two left" : "";
+      return [`Your Mac mini is turning it into text: ${STAGE_WORDS[st.stage] || "getting started"}. ${pct}%${time}`, "busy"];
+    }
     case "done": return ["The text is ready. Saving it…", "busy"];
     case "error": return [st.error || "It stopped. Try again.", "bad"];
     case "receiving": return ["The recording didn't all reach your Mac mini. Delete this and import it again.", "bad"];
@@ -2166,6 +2206,13 @@ function jobLine(st) {
   }
 }
 const jobFailed = (st) => !!st && ["error", "receiving", "missing"].includes(st.state);
+// The way that wasn't tried, when there is one.
+function otherWay(st) {
+  const w = cap.transcribe && cap.transcribe.ways;
+  if (!w) return "";
+  if (st.engine === "local") return w.soniox ? "soniox" : "";
+  return w.local ? "local" : "";
+}
 function renderTranscribing(v, m) {
   const st = state.job && state.job.m === m ? state.job.st : null;
   const failed = jobFailed(st);
@@ -2175,9 +2222,10 @@ function renderTranscribing(v, m) {
       h("h1", { style: "font-size:24px" }, titleOf(m)),
       h("p", { class: "muted", style: "margin:4px 0 0" }, [fmtDate(m.startedAt || m.createdAt), m.recSeconds ? fmtDuration(m.recSeconds) : "", m.sourceName ? `from ${m.sourceName}` : ""].filter(Boolean).join(" · "))),
     h("p", { id: "jobStatus", class: `status-line ${kind}`, style: "margin:0;font-size:15px", role: "status" }, text),
-    cap.transcribe && !failed ? h("p", { class: "muted small-text", style: "margin:0" }, `This can take a few minutes. You can close AllKnowing meanwhile: your Mac mini carries on, and the transcript is here when you open this meeting again.${obj(m.job).minutes ? " Then the minutes get written." : ""}`) : null,
+    cap.transcribe && !failed ? h("p", { class: "muted small-text", style: "margin:0" }, `${obj(m.job).way === "local" || (st && st.engine === "local") ? "The Mac mini's own models are free but not fast, so this takes a while." : "This can take a few minutes."} You can close AllKnowing meanwhile: your Mac mini carries on, and the transcript is here when you open this meeting again.${obj(m.job).minutes ? " Then the minutes get written." : ""}`) : null,
     cap.transcribe ? h("div", { class: "row" },
       st && st.state === "error" ? h("button", { type: "button", class: "btn primary", onclick: () => retryJob(m) }, "Try again") : null,
+      st && st.state === "error" && otherWay(st) ? h("button", { type: "button", class: "btn", onclick: () => retryJob(m, otherWay(st)) }, otherWay(st) === "soniox" ? "Use Soniox for this one" : "Use the Mac mini's own models") : null,
       h("button", { type: "button", class: `btn${failed ? "" : " ghost"}`, onclick: () => confirmStopJob(m, failed) }, failed ? "Delete this meeting" : "Stop and delete")) : null));
   watchJob(m);
 }
@@ -2268,12 +2316,16 @@ async function finishJob(m, w) {
     const seg = { id: uid(), t: Math.max(0, Number(line.t) || 0), sp: "", text: str(line.text, 6000), kind: "speech" };
     const v = Number(line.v);
     if (Number.isInteger(v) && v > 0) seg.v = v;
+    // Words the speech models didn't agree on, with what else was heard.
+    const alt = arr(line.alt, 12).map((a) => (Array.isArray(a) ? [Number(a[0]), Number(a[1]), arr(a[2], 3).map((o) => str(o, 80)).filter(Boolean)] : null)).filter((a) => a && Number.isInteger(a[0]) && Number.isInteger(a[1]) && a[0] >= 0 && a[1] > a[0] && a[1] <= seg.text.length && a[2].length);
+    if (alt.length) seg.alt = alt;
     return seg;
   }).filter((x) => x.text);
   const seconds = Number(got.duration) || m.recSeconds || 0;
   m.recSeconds = seconds;
   if (m.startedAt && seconds) m.endedAt = m.startedAt + Math.round(seconds * 1000);
-  m.transcribed = { by: "Soniox", model: str(got.model, 60), at: Date.now(), joins: arr(got.joins, 20).map(Number).filter((x) => x > 0) };
+  const own = got.by === "this Mac";
+  m.transcribed = { by: own ? "Mac mini" : "Soniox", model: str(own ? arr(got.models, 8).join(" + ") : got.model, 120), at: Date.now(), joins: arr(got.joins, 20).map(Number).filter((x) => x > 0) };
   m.status = "done";
   delete m.job;
   state.job = null;
@@ -2286,14 +2338,14 @@ async function finishJob(m, w) {
   if (state.cur !== m) return true;
   renderCurrentBox();
   if (state.route === "after") renderAfter();
-  if (!m.segs.length) toast("Soniox heard no words in that recording.", "warn", 7000);
+  if (!m.segs.length) toast("No words were heard in that recording.", "warn", 7000);
   else if (job.minutes && cap.sample && !state.aiBlocked) generateMinutes();
   else toast(job.minutes ? "The transcript is in. Tap “Write the minutes” when Claude is connected." : "The transcript is in. Write the minutes whenever you're ready.", "good", 6000);
   return true;
 }
-async function retryJob(m) {
+async function retryJob(m, way) {
   if (!m.job || !cap.transcribe) return;
-  try { showJob(m, await cap.transcribe.retry(m.job.id)); }
+  try { showJob(m, await cap.transcribe.retry(m.job.id, way || "")); }
   catch (e) { toast((e && e.userMessage) || "Couldn't reach your Mac mini. Try again in a moment.", "bad", 6000); return; }
   watchJob(m);
 }
@@ -2313,7 +2365,7 @@ function renderAfter() {
   const dur = m.startedAt ? fmtDuration(((m.endedAt || Date.now()) - m.startedAt) / 1000) : "";
   v.append(h("div", { class: "card", style: "margin-bottom:16px" },
     h("div", { class: "row space" },
-      h("div", null, h("h1", { style: "font-size:24px" }, titleOf(m)), h("p", { class: "muted", style: "margin:4px 0 0" }, [fmtDate(m.startedAt || m.createdAt), dur, plural(m.segs.length, "transcript line"), m.transcribed ? `transcribed from ${m.sourceName || "a recording"}` : m.source === "import" ? `imported from ${m.sourceName || "a transcript"}` : ""].filter(Boolean).join(" · "))),
+      h("div", null, h("h1", { style: "font-size:24px" }, titleOf(m)), h("p", { class: "muted", style: "margin:4px 0 0" }, [fmtDate(m.startedAt || m.createdAt), dur, plural(m.segs.length, "transcript line"), m.transcribed ? `transcribed from ${m.sourceName || "a recording"}${m.transcribed.by === "Mac mini" ? " on your Mac mini" : ""}` : m.source === "import" ? `imported from ${m.sourceName || "a transcript"}` : ""].filter(Boolean).join(" · "))),
       h("div", { class: "row" },
         h("button", { type: "button", class: "btn primary", id: "minBtn", onclick: generateMinutes }, n ? "Rewrite minutes" : "Write the minutes"),
         n ? h("button", { type: "button", class: "btn", onclick: () => saveFile(`${safeName(titleOf(m))} - minutes.md`, minutesMarkdown(m)) }, "Download") : null,
@@ -2853,6 +2905,8 @@ function addRecording(f) {
   const imp = state.imp;
   const rec = { file: f, name: f.name || "recording", size: f.size, seconds: 0, busy: false, sent: 0, stop: null };
   imp.rec = rec;
+  // How things stand on the Mac mini right now (its own models may just have become ready).
+  if (cap.transcribe.refresh) cap.transcribe.refresh().then(() => { if (state.imp === imp && imp.rec === rec && !rec.busy && state.route === "import") renderImportPreview(); }).catch(() => null);
   if (!imp.title) imp.title = rec.name.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ").trim();
   mediaSeconds(f).then((sec) => {
     if (state.imp !== imp || imp.rec !== rec) return;
@@ -2871,7 +2925,7 @@ function mediaHelp(imp) {
     h("strong", null, `${imp.media.join(", ")} ${imp.media.length === 1 ? "is a recording" : "are recordings"}. Turn it into a transcript first.`),
     h("span", null, "This page can't listen to a file here, but any of these gives you a transcript to add:"),
     h("ol", null,
-      h("li", null, "AllKnowing on your Mac mini: open it from the Mac mini's own link and import the recording there. It's turned into text for you, with the voices told apart."),
+      h("li", null, "AllKnowing on your Mac mini: open it from the Mac mini's own link and import the recording there. It's turned into text for you, free, with the voices told apart."),
       h("li", null, "Recordly, the desktop app (version 1.4.2 or later): right-click its icon in the taskbar or Dock, choose Transcribe a recording… and pick the file. It's transcribed on your own computer and saved as a .txt and an .srt next to the recording. Paste the text below or add the .srt."),
       h("li", null, "A Teams meeting that had transcription on: use “From a Teams meeting”."),
       h("li", null, "Phone apps that transcribe, such as Otter or 飞书妙记: export the transcript as text and add it here.")),
@@ -2935,16 +2989,39 @@ function renderRecordingChip() {
     r.busy ? null : h("button", { type: "button", class: "btn small ghost", onclick: () => { imp.rec = null; renderImport(); } }, "Remove")));
 }
 // What happens to a recording, what it costs, and the two ways to go.
+// Which way this recording will go: the Mac mini's own free models when they're ready, unless the
+// faster paid way was picked for it.
+function recWay(imp) {
+  const w = cap.transcribe.ways || { local: 0, soniox: true };
+  const asked = imp.rec.way;
+  if (asked === "soniox" && w.soniox) return "soniox";
+  if (asked === "local" && w.local) return "local";
+  return w.local ? "local" : "soniox";
+}
 function renderRecordingPanel(box, imp) {
   const r = imp.rec;
+  const w = cap.transcribe.ways || { local: 0, soniox: true, getting: -1 };
+  const way = recWay(imp);
   const usd = (r.seconds / 3600) * 0.1;
-  const cost = r.seconds ? ` This one comes to ${usd < 0.01 ? "under US$0.01" : `about US$${usd.toFixed(2)}`}.` : "";
-  box.replaceChildren(
-    h("div", { class: "card-head" }, h("h2", null, "Turn it into text")),
-    h("p", { style: "margin:0" }, "Your Mac mini sends the recording to Soniox, which turns it into text and tells the voices apart. Then Claude writes the minutes and works out who's who from what was said."),
-    h("p", { class: "muted small-text", style: "margin:0" }, `Soniox charges about US$0.10 for an hour of audio, on your own Soniox account.${cost} The audio is deleted from Soniox and from the Mac mini as soon as the text is back.`));
+  const cost = usd < 0.01 ? "under US$0.01" : `about US$${usd.toFixed(2)}`;
+  const mins = Math.max(1, Math.ceil(((r.seconds || 0) / 3600) * (w.local / 60)));
+  const took = r.seconds ? `about ${mins} ${mins === 1 ? "minute" : "minutes"} for this one` : `about ${Math.max(1, Math.round(w.local / 60))} minutes for each hour of recording`;
+  const swap = (to, label) => h("button", { type: "button", class: "btn small ghost", onclick: () => { r.way = to; renderImportPreview(); } }, label);
+  clearTimeout(state.recTimer);
+  box.replaceChildren(h("div", { class: "card-head" }, h("h2", null, "Turn it into text")));
   const why = cap.transcribe.unavailable;
-  if (why) { box.append(h("div", { class: "banner" }, h("span", null, why))); return; }
+  if (why) {
+    box.append(h("div", { class: "banner" }, h("span", null, why)));
+    // The Mac mini may be part way through fetching its models: look again shortly.
+    if (w.getting >= 0 && cap.transcribe.refresh) state.recTimer = setTimeout(async () => { await cap.transcribe.refresh(); if (state.imp === imp && state.route === "import" && !r.busy) renderImportPreview(); }, 5000);
+    return;
+  }
+  if (way === "local") box.append(
+    h("p", { style: "margin:0" }, "Your Mac mini turns the recording into text itself: three free speech models hear it and check each other word by word, and the voices are told apart. Then Claude writes the minutes and works out who's who from what was said."),
+    h("p", { class: "muted small-text", style: "margin:0" }, `It costs nothing and the audio stays on your Mac mini. It isn't quick: ${took}.`));
+  else box.append(
+    h("p", { style: "margin:0" }, "Your Mac mini sends the recording to Soniox, which turns it into text and tells the voices apart. Then Claude writes the minutes and works out who's who from what was said."),
+    h("p", { class: "muted small-text", style: "margin:0" }, `Soniox charges about US$0.10 for an hour of audio, on your own Soniox account.${r.seconds ? ` This one comes to ${cost}.` : ""} The audio is deleted from Soniox and from the Mac mini as soon as the text is back.${w.getting >= 0 ? " The free way isn't ready yet: your Mac mini is still fetching its own speech models." : ""}`));
   if (r.busy) {
     box.append(
       h("div", { class: "meter", role: "progressbar", "aria-label": "Sending the recording to your Mac mini", "aria-valuemin": "0", "aria-valuemax": "100" }, h("span", { id: "recBar" })),
@@ -2953,11 +3030,14 @@ function renderRecordingPanel(box, imp) {
     showRecProgress();
     return;
   }
-  box.append(
+  box.append(...[
     h("div", { class: "row" },
       h("button", { type: "button", class: "btn primary", onclick: () => importRecording(true) }, "Transcribe and write the minutes"),
       h("button", { type: "button", class: "btn", onclick: () => importRecording(false) }, "Transcribe only")),
-    h("p", { class: "muted small-text", style: "margin:0" }, "Keep this open while the recording goes to your Mac mini. After that you can close AllKnowing: the meeting is in your list, and its transcript is there when you open it."));
+    way === "local" && w.soniox ? h("div", { class: "row" }, swap("soniox", `In a hurry? Use Soniox instead (${r.seconds ? cost : "about US$0.10 an hour"})`)) : null,
+    way === "soniox" && w.local ? h("div", { class: "row" }, swap("local", "Use the Mac mini's own free models instead")) : null,
+    h("p", { class: "muted small-text", style: "margin:0" }, "Keep this open while the recording goes to your Mac mini. After that you can close AllKnowing: the meeting is in your list, and its transcript is there when you open it."),
+  ].filter(Boolean));
 }
 function showRecProgress() {
   const r = state.imp && state.imp.rec;
@@ -2975,6 +3055,7 @@ async function importRecording(writeMinutes) {
   const rec = imp && imp.rec;
   if (!rec || rec.busy || !cap.transcribe) return;
   if (isListening()) { toast("Stop listening before importing.", "warn"); return; }
+  const way = recWay(imp);
   rec.busy = true;
   rec.sent = 0;
   rec.stop = new AbortController();
@@ -2986,13 +3067,14 @@ async function importRecording(writeMinutes) {
       language: speechLang(imp.lang),
       terms: namesIn(imp.attendees),
       topic: [imp.title, imp.goal].filter(Boolean).join(". ").slice(0, 300),
+      engine: way,
       signal: rec.stop.signal,
       onProgress: (sent) => { rec.sent = sent; showRecProgress(); },
     });
   } catch (e) {
     rec.busy = false;
     const byUser = rec.stop.signal.aborted;
-    toast(byUser ? "Stopped. Nothing went to Soniox." : (e && (e.userMessage || e.message)) || "Couldn't get the recording to your Mac mini.", byUser ? "" : "bad", 7000);
+    toast(byUser ? (way === "soniox" ? "Stopped. Nothing went to Soniox." : "Stopped. Your Mac mini has dropped what it had of it.") : (e && (e.userMessage || e.message)) || "Couldn't get the recording to your Mac mini.", byUser ? "" : "bad", 7000);
     if (state.imp === imp && state.route === "import") { renderRecordingChip(); renderImportPreview(); }
     return;
   }
@@ -3005,7 +3087,7 @@ async function importRecording(writeMinutes) {
     title: imp.title.trim() || `Recording ${new Date(startedAt).toLocaleDateString()}`,
     createdAt: now, updatedAt: now, status: "transcribing", startedAt, endedAt: seconds ? startedAt + Math.round(seconds * 1000) : null,
     source: "import", sourceName: rec.name.slice(0, 200), recSeconds: seconds,
-    job: { id: job.id, minutes: !!writeMinutes, at: now },
+    job: { id: job.id, minutes: !!writeMinutes, at: now, way: job.engine || way },
     prep: { attendees: imp.attendees, goal: imp.goal, lang: imp.lang, when: fmtDate(startedAt) },
   });
   if (state.imp === imp) state.imp = freshImport();

@@ -34,10 +34,11 @@ const { spawn, spawnSync } = require("node:child_process");
 const { Readable } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
 
-const VERSION = "1.1";
+const VERSION = "1.2";
 // What the page may expect from this hub. A page that needs more waits for the hub to be updated.
 // 2: recordings turned into text (/api/transcribe).
-const HUB_API = 2;
+// 3: recordings turned into text on this Mac, by free speech models (status.local, engine).
+const HUB_API = 3;
 const HOME = process.env.AK_HUB_HOME || path.join(os.homedir(), "AllKnowing");
 const CONFIG = path.join(HOME, "config.json");
 const NOTES = path.join(HOME, "notes");
@@ -99,6 +100,8 @@ function loadConfig() {
 		autoUpdate: c.autoUpdate !== false,
 		// Phones can only reach a Mac that is awake. The screen may still sleep.
 		keepAwake: c.keepAwake !== false,
+		// Turn recordings into text here, with free speech models (see "on this Mac for free" below).
+		localSpeech: c.localSpeech !== false,
 	};
 	const fresh = !cfg.code;
 	if (fresh) cfg.code = newCode();
@@ -1693,6 +1696,437 @@ function stitch(parts) {
 	};
 }
 
+/* ---------- recordings, turned into text on this Mac for free ----------
+   The other way to turn a recording into text, and the one used when it's ready: free speech models
+   that run on this Mac and check each other, so nothing is paid for and no audio leaves the computer.
+   speech.cjs (next to this file) says which models, where they come from, and does the listening; its
+   opening comment explains how. Here: fetching the engine and the models once into ~/AllKnowing/speech
+   (about 1.8 GB, each download checked against the SHA-256 written in speech.cjs), checking that they
+   work on this Mac, and running a recording through them.
+
+   It is slower than Soniox: a recording takes roughly half its own length on a recent computer, and
+   the Mac measures its own speed so the page can say how long. Soniox stays available for recordings
+   when a speech key is saved, as the faster, paid way; live listening still needs it. */
+const SPEECH = path.join(HOME, "speech");
+const SPEECH_FILE = path.join(__dirname, "speech.cjs");
+const SPEECH_OFF = process.env.AK_HUB_SPEECH === "off";
+const SPEECH_SOURCE = (process.env.AK_HUB_SPEECH_SOURCE || "").replace(/\/+$/, "");
+// none: not fetched yet. getting: downloading. checking: trying them out. ready. error. off.
+const local = { state: SPEECH_OFF ? "off" : "none", item: "", got: 0, of: 0, error: "", detail: "", at: 0 };
+let speechLib = null;
+function speech() {
+	if (speechLib || SPEECH_OFF) return speechLib;
+	try {
+		speechLib = require(SPEECH_FILE);
+	} catch (e) {
+		if (fs.existsSync(SPEECH_FILE)) log(`speech.cjs couldn't be read: ${e.message}`);
+	}
+	return speechLib;
+}
+// What the page is told about it.
+function speechInfo() {
+	const lib = local.state === "ready" ? speech() : null;
+	return {
+		state: local.state,
+		progress: local.of ? Math.min(1, local.got / local.of) : 0,
+		item: local.item,
+		bytes: local.of,
+		error: local.error,
+		// what the engine itself said when it wouldn't run: for whoever looks into it
+		detail: local.detail,
+		// seconds of work for an hour of recording, as measured on this Mac
+		perHour: lib ? lib.estimate(SPEECH, 3600) : 0,
+		models: lib ? Object.values(lib.MODELS).map((m) => m.name) : [],
+	};
+}
+// Tests point the downloads at a stand-in.
+function speechUrl(url) {
+	if (!SPEECH_SOURCE) return url;
+	return url
+		.replace("https://github.com/k2-fsa/sherpa-onnx/releases/download", `${SPEECH_SOURCE}/gh`)
+		.replace("https://registry.npmjs.org", `${SPEECH_SOURCE}/npm`);
+}
+function hashFile(file) {
+	return new Promise((resolve, reject) => {
+		const h = crypto.createHash("sha256");
+		fs.createReadStream(file)
+			.on("data", (d) => h.update(d))
+			.on("error", reject)
+			.on("end", () => resolve(h.digest("hex")));
+	});
+}
+// A big file, fetched so that a dropped connection carries on from where it stopped, and only kept
+// if it is exactly the file that was expected.
+async function download(url, dest, item, onBytes) {
+	const name = path.basename(dest);
+	for (let tries = 0, bad = 0; ; ) {
+		let have = 0;
+		try {
+			have = fs.statSync(dest).size;
+		} catch {
+			/* not started */
+		}
+		if (have > item.bytes) {
+			fs.rmSync(dest, { force: true });
+			have = 0;
+		}
+		if (have < item.bytes) {
+			const stop = new AbortController();
+			let quiet = setTimeout(() => stop.abort(), 90000);
+			try {
+				const r = await fetch(url, {
+					headers: have ? { range: `bytes=${have}-` } : {},
+					signal: stop.signal,
+				});
+				if (r.status === 200) have = 0;
+				else if (r.status !== 206) throw new Error(`the server answered ${r.status}`);
+				const out = fs.createWriteStream(dest, { flags: have ? "a" : "w", mode: 0o600 });
+				try {
+					for await (const chunk of r.body) {
+						clearTimeout(quiet);
+						quiet = setTimeout(() => stop.abort(), 90000);
+						if (!out.write(chunk)) await new Promise((res) => out.once("drain", res));
+						have += chunk.length;
+						onBytes(Math.min(have, item.bytes));
+					}
+				} finally {
+					await new Promise((res) => out.end(res));
+				}
+				tries = 0;
+			} catch (e) {
+				if (++tries > 6)
+					throw userError(
+						`The download of ${name} keeps stopping (${e.name === "AbortError" ? "no data for a while" : e.message}). Check the Mac mini's internet connection, then try again.`,
+					);
+				await sleep(Math.min(30000, 1500 * tries) * (process.env.AK_HUB_RETRY_MS ? 0.01 : 1));
+				continue;
+			} finally {
+				clearTimeout(quiet);
+			}
+			continue;
+		}
+		if ((await hashFile(dest)) === item.sha256) return;
+		fs.rmSync(dest, { force: true });
+		if (++bad > 1)
+			throw userError(
+				`The download of ${name} wasn't the file that was expected, so it wasn't used. Try again later.`,
+			);
+	}
+}
+async function unpack(args, into) {
+	const tar = findTool("tar");
+	if (!tar) throw userError("This computer has no tar to unpack the speech models with.");
+	fs.mkdirSync(into, { recursive: true, mode: 0o700 });
+	const r = await run(tar, [...args, "-C", into], 30 * 60000);
+	if (r.code !== 0) throw new Error(`tar: ${(r.err || r.out).trim().slice(-300)}`);
+}
+async function fetchPiece(item, onBytes) {
+	const downloads = path.join(SPEECH, "downloads");
+	fs.mkdirSync(downloads, { recursive: true, mode: 0o700 });
+	const got = path.join(downloads, path.basename(new URL(item.url).pathname));
+	await download(speechUrl(item.url), got, item, onBytes);
+	if (item.file) {
+		fs.mkdirSync(path.join(SPEECH, "models"), { recursive: true, mode: 0o700 });
+		fs.renameSync(got, path.join(SPEECH, "models", item.file));
+		return;
+	}
+	const dest = item.dir
+		? path.join(SPEECH, "models", item.dir)
+		: path.join(SPEECH, "engine", "node_modules", item.into);
+	const tmp = `${dest}.unpacking`;
+	fs.rmSync(tmp, { recursive: true, force: true });
+	if (item.dir) await unpack(["-xjf", got], tmp);
+	else await unpack(["-xzf", got, "--strip-components=1"], tmp);
+	const made = item.dir ? path.join(tmp, item.dir) : tmp;
+	if (!fs.existsSync(made)) throw new Error(`${path.basename(got)} didn't hold what was expected`);
+	fs.rmSync(dest, { recursive: true, force: true });
+	fs.renameSync(made, dest);
+	fs.rmSync(tmp, { recursive: true, force: true });
+	fs.rmSync(got, { force: true });
+}
+function speechWorker(args, onLine) {
+	return new Promise((resolve) => {
+		const p = spawn(process.execPath, [SPEECH_FILE, ...args], {
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		// The Mac has other things to do too.
+		try {
+			os.setPriority(p.pid, 10);
+		} catch {
+			/* it runs at the usual priority */
+		}
+		let rest = "";
+		let err = "";
+		p.stdout.on("data", (d) => {
+			rest += d;
+			for (;;) {
+				const nl = rest.indexOf("\n");
+				if (nl < 0) break;
+				const line = rest.slice(0, nl);
+				rest = rest.slice(nl + 1);
+				try {
+					onLine(JSON.parse(line));
+				} catch {
+					/* not ours */
+				}
+			}
+		});
+		p.stderr.on("data", (d) => {
+			err = (err + d).slice(-4000);
+		});
+		p.on("error", (e) => resolve({ code: -1, err: e.message, p }));
+		p.on("close", (code) => resolve({ code, err, p }));
+		onLine({ worker: p });
+	});
+}
+let settingUp = null;
+// Fetch whatever isn't here yet, then try everything out. Safe to call again: it carries on.
+function setupSpeech() {
+	if (SPEECH_OFF) return Promise.resolve(local);
+	if (settingUp) return settingUp;
+	settingUp = (async () => {
+		try {
+			local.error = "";
+			local.detail = "";
+			local.item = "";
+			if (!fs.existsSync(SPEECH_FILE)) {
+				local.state = "getting";
+				const r = await update({ withHub: false, speechFile: true });
+				if (!fs.existsSync(SPEECH_FILE))
+					throw userError(
+						`The Mac mini couldn't fetch its speech file (${r.message || "no answer"}). Press Get the latest version, then try again.`,
+					);
+			}
+			const lib = speech();
+			if (!lib)
+				throw userError(
+					"The Mac mini's speech file can't be read. Press Get the latest version, then try again.",
+				);
+			const kind = lib.platformKey();
+			if (!lib.ENGINE[kind])
+				throw userError(
+					`There is no speech engine for this kind of computer (${kind}), so recordings need Soniox here.`,
+				);
+			const gone = lib.missing(SPEECH);
+			const want = [];
+			if (gone.includes("engine")) want.push(lib.ENGINE.node, lib.ENGINE[kind]);
+			for (const k of gone) if (k !== "engine") want.push(lib.MODELS[k]);
+			if (want.length) {
+				local.state = "getting";
+				local.of = want.reduce((a, x) => a + x.bytes, 0);
+				local.got = 0;
+				let free = Number.POSITIVE_INFINITY;
+				try {
+					fs.mkdirSync(SPEECH, { recursive: true, mode: 0o700 });
+					const s = fs.statfsSync(SPEECH);
+					free = Number(s.bavail) * Number(s.bsize);
+				} catch {
+					/* an older Node can't say; the download will */
+				}
+				const need = local.of * 2.4 + 300e6;
+				if (free < need)
+					throw userError(
+						`There isn't enough room on the Mac mini for the speech models: they need about ${(need / 1e9).toFixed(1)} GB free while they're set up, and ${(free / 1e9).toFixed(1)} GB is free.`,
+					);
+				log(
+					`Fetching the free speech models: ${want.length} downloads, ${(local.of / 1e6).toFixed(0)} MB.`,
+				);
+				let before = 0;
+				for (const item of want) {
+					local.item = item.name || "the speech engine";
+					await fetchPiece(item, (n) => {
+						local.got = before + n;
+					});
+					before += item.bytes;
+					local.got = before;
+				}
+			}
+			local.state = "checking";
+			local.item = "";
+			let answer = null;
+			const r = await speechWorker(["check", SPEECH], (m) => {
+				if (typeof m.ok === "boolean") answer = m;
+			});
+			if (!answer || !answer.ok) {
+				const said = (answer && answer.error) || r.err.trim().slice(-600) || `exit ${r.code}`;
+				local.detail = `${process.platform} ${os.release()} ${process.arch}, Node ${process.versions.node}: ${said}`.slice(0, 700);
+				log(`The speech models didn't pass their check: ${said}`);
+				throw userError(
+					`The speech models are on the Mac mini but didn't work when tried${answer && answer.failed ? ` (${answer.failed})` : ""}. Recordings can still go through Soniox with a speech key.`,
+				);
+			}
+			writeAtomic(
+				path.join(SPEECH, "ready.json"),
+				JSON.stringify({ engine: lib.ENGINE_VERSION, at: Date.now(), speeds: answer.speeds }),
+				0o600,
+			);
+			local.state = "ready";
+			local.at = Date.now();
+			log(
+				`The free speech models are ready (an hour of recording takes about ${Math.round(lib.estimate(SPEECH, 3600) / 60)} minutes here).`,
+			);
+			setImmediate(nextJob);
+		} catch (e) {
+			local.state = "error";
+			local.error =
+				e.user || "Something went wrong while setting up the speech models. Try again.";
+			log(`Speech models: ${e.user ? e.message : e.stack || e.message}`);
+		} finally {
+			settingUp = null;
+		}
+		return local;
+	})();
+	return settingUp;
+}
+// At start-up: ready at once if they were set up before, else start fetching.
+function startSpeech() {
+	if (SPEECH_OFF) return;
+	const lib = speech();
+	let was = null;
+	try {
+		was = JSON.parse(fs.readFileSync(path.join(SPEECH, "ready.json"), "utf8"));
+	} catch {
+		/* never set up */
+	}
+	if (lib && was && was.engine === lib.ENGINE_VERSION && !lib.missing(SPEECH).length) {
+		local.state = "ready";
+		local.at = was.at || 0;
+		return;
+	}
+	if (cfg.localSpeech !== false) setupSpeech();
+}
+// The recording as the models want it: one channel, 16 kHz, 16-bit, in sound.wav.
+async function makeSound(job) {
+	const dir = jobDir(job.id);
+	const wav = path.join(dir, "sound.wav");
+	const mark = path.join(dir, "sound.ok");
+	if (fs.existsSync(mark) && fs.existsSync(wav)) return;
+	let src = path.join(dir, job.audio);
+	let info = null;
+	try {
+		info = await probeRecording(src, job.ext);
+	} catch (e) {
+		log(`Couldn't read a recording here (${job.ext}): ${e.message}`);
+	}
+	if (info && info.silent) throw userError("There's no sound in this file.");
+	// A video goes to the converter as its sound only.
+	if (info && info.kind === "mp4" && info.hasVideo && (info.codec.adts || info.codec.raw)) {
+		const parts = await cutParts(src, info, [[0, info.duration]], dir);
+		if (parts.length) src = path.join(dir, parts[0].file);
+	}
+	const f = info && info.kind === "wav" ? info.fmt : null;
+	const fit =
+		!!f &&
+		f.readUInt16LE(8) === 1 &&
+		f.readUInt16LE(10) === 1 &&
+		f.readUInt32LE(12) === 16000 &&
+		f.readUInt16LE(22) === 16;
+	const tool = converter();
+	if (fit && !tool) fs.copyFileSync(src, wav);
+	else if (!tool)
+		throw userError(
+			"This computer has nothing to read this kind of recording with. Install ffmpeg, or save the recording as a 16 kHz WAV.",
+		);
+	else await toWav(tool, src, wav);
+	fs.writeFileSync(mark, "");
+	if (src !== path.join(dir, job.audio)) fs.rmSync(src, { force: true });
+}
+async function localJob(job) {
+	const live = liveOf(job);
+	const dir = jobDir(job.id);
+	const lib = speech();
+	if (local.state !== "ready" || !lib)
+		throw userError(
+			"The Mac mini's speech models aren't ready. Look at Home → Mac mini, then try again.",
+		);
+	job.error = "";
+	job.progress = 0;
+	job.left = 0;
+	job.stage = "";
+	setState(job, "preparing");
+	await makeSound(job);
+	if (stopped(job)) return;
+	writeAtomic(
+		path.join(dir, "ask.json"),
+		JSON.stringify({ hints: job.hints, terms: job.terms, topic: job.topic }),
+		0o600,
+	);
+	setState(job, "transcribing");
+	let saved = Date.now();
+	let last = null;
+	const stop = () => last && last.kill("SIGTERM");
+	live.abort.signal.addEventListener("abort", stop);
+	let done = null;
+	let failed = "";
+	const r = await speechWorker(["run", dir, SPEECH], (m) => {
+		if (m.worker) {
+			last = m.worker;
+			if (live.stopped) stop();
+			return;
+		}
+		if (m.done) done = m;
+		if (m.error) failed = String(m.error);
+		if (typeof m.progress === "number") {
+			job.progress = m.progress;
+			job.left = m.left || 0;
+			job.stage = m.step || job.stage;
+			if (Date.now() - saved > 15000) {
+				saved = Date.now();
+				saveJob(job);
+			}
+		}
+	});
+	live.abort.signal.removeEventListener("abort", stop);
+	if (stopped(job)) return;
+	let result = null;
+	try {
+		result = JSON.parse(fs.readFileSync(path.join(dir, "result.json"), "utf8"));
+	} catch {
+		/* it didn't get that far */
+	}
+	if (r.code !== 0 || !done || !result) {
+		log(`A recording stopped in the speech models: ${failed || r.err.trim().slice(-800) || `exit ${r.code}`}`);
+		if (/no sound/i.test(failed)) throw userError("There's no sound in this recording.");
+		throw userError(
+			cfg.speechKey
+				? "The Mac mini's own speech models couldn't finish this recording. Try again, or use Soniox for this one."
+				: "The Mac mini's own speech models couldn't finish this recording. Try again.",
+		);
+	}
+	job.model = (result.models || []).join(" + ");
+	job.lines = result.lines.length;
+	job.voices = result.voices;
+	job.duration = result.duration || job.duration;
+	job.progress = 1;
+	job.left = 0;
+	job.doneAt = Date.now();
+	setState(job, "done");
+	dropAudio(job);
+	log(
+		`A recording is now text, made on this Mac: ${Math.round(job.duration / 60)} min, ${result.lines.length} lines, ${result.voices} voice(s), ${result.stats ? result.stats.doubts : 0} place(s) in doubt.`,
+	);
+}
+// Which way a recording goes: the way that was asked for, else this Mac's own models when they're
+// ready, else Soniox when there's a key.
+function engineFor(asked) {
+	const key = !!cfg.speechKey;
+	if (asked === "soniox") return key ? { engine: "soniox" } : { error: NO_SPEECH_KEY, type: "no_key" };
+	if (local.state === "ready") return { engine: "local" };
+	if (asked !== "local" && key) return { engine: "soniox" };
+	if (local.state === "getting" || local.state === "checking" || local.state === "none")
+		return {
+			type: "not_ready",
+			error:
+				local.state === "getting" && local.of
+					? `The Mac mini is still fetching its speech models (${Math.round((100 * local.got) / local.of)}%). Try again in a few minutes.`
+					: "The Mac mini is still getting its speech models ready. Try again in a few minutes.",
+		};
+	if (local.state === "error")
+		return { type: "no_engine", error: `${local.error} (Home → Mac mini → Try again.)` };
+	// Its own models are switched off: Soniox is the only way.
+	return { type: "no_key", error: NO_SPEECH_KEY };
+}
+
 /* The recordings being worked on. */
 const jobs = new Map(); // id → the job, as saved in recordings/<id>/job.json
 const running = new Map(); // id → what isn't saved: { abort, stopped, writing }
@@ -1732,6 +2166,11 @@ function jobStatus(job) {
 		error: job.error,
 		lines: job.lines || 0,
 		voices: job.voices || 0,
+		// "local": this Mac's own models, with how far along they are and about how long is left
+		engine: job.engine || "soniox",
+		stage: job.stage || "",
+		progress: job.state === "done" ? 1 : job.progress || 0,
+		left: job.left || 0,
 	};
 }
 // Everything but the record and the text: the audio isn't kept a moment longer than it's needed.
@@ -1803,6 +2242,7 @@ async function runJob(job) {
 	}
 }
 async function transcribeJob(job) {
+	if (job.engine === "local") return localJob(job);
 	const signal = liveOf(job).abort.signal;
 	const dir = jobDir(job.id);
 	if (!cfg.speechKey) throw userError(NO_SPEECH_KEY);
@@ -1827,8 +2267,9 @@ async function transcribeJob(job) {
 				const sent = await patiently(job, () =>
 					sonioxUpload(path.join(dir, part.file), name, signal),
 				);
-				if (stopped(job)) return;
 				part.fileId = String(sent.id || "");
+				// Stopped while it was going up: what just arrived at Soniox goes again.
+				if (stopped(job)) return forgetAtSoniox(part);
 				if (!part.fileId) throw userError("Soniox didn't take the recording. Try again.");
 				saveJob(job);
 			}
@@ -1837,8 +2278,8 @@ async function transcribeJob(job) {
 				const made = await patiently(job, () =>
 					startTranscription(job, part, job.model, signal),
 				);
-				if (stopped(job)) return;
 				part.txId = String(made.id || "");
+				if (stopped(job)) return forgetAtSoniox(part);
 				if (!part.txId) throw userError("Soniox didn't start on the recording. Try again.");
 				saveJob(job);
 			} catch (e) {
@@ -1964,7 +2405,8 @@ async function newRecording(req, res) {
 			"too_big",
 			"That recording is over 2 GB. Save just its sound, as MP3 or M4A, and import that.",
 		);
-	if (!cfg.speechKey) return no(400, "no_key", NO_SPEECH_KEY);
+	const way = engineFor(["local", "soniox"].includes(b.engine) ? b.engine : "");
+	if (way.error) return no(400, way.type, way.error);
 	if ([...jobs.values()].filter((j) => j.state === "receiving").length >= 4)
 		return no(
 			429,
@@ -1987,6 +2429,7 @@ async function newRecording(req, res) {
 		audio: `audio.${ext}`,
 		size,
 		received: 0,
+		engine: way.engine,
 		state: "receiving",
 		createdAt: now,
 		updatedAt: now,
@@ -2009,7 +2452,9 @@ async function newRecording(req, res) {
 	fs.writeFileSync(path.join(jobDir(job.id), job.audio), "", { mode: 0o600 });
 	jobs.set(job.id, job);
 	saveJob(job);
-	log(`A recording is on its way here: ${(size / 1e6).toFixed(1)} MB.`);
+	log(
+		`A recording is on its way here: ${(size / 1e6).toFixed(1)} MB, for ${way.engine === "local" ? "this Mac's own speech models" : "Soniox"}.`,
+	);
 	sendJson(res, 200, { ...jobStatus(job), chunk: CHUNK });
 }
 // The next piece of a recording. It has to start where the last one ended; if it doesn't, the answer
@@ -2063,7 +2508,8 @@ async function receivePiece(req, res, job, at) {
 	saveJob(job);
 	sendJson(res, 200, { received: job.received });
 }
-function startRecording(res, job) {
+async function startRecording(req, res, job) {
+	const b = await readJson(req, 4096).catch(() => ({}));
 	if (job.state === "receiving" && job.received !== job.size)
 		return sendJson(res, 409, {
 			...jobStatus(job),
@@ -2073,14 +2519,26 @@ function startRecording(res, job) {
 			},
 		});
 	if (job.state === "receiving" || job.state === "error") {
-		if (!cfg.speechKey)
-			return sendJson(res, 400, { error: { type: "no_key", message: NO_SPEECH_KEY } });
+		// The same way as before unless another is asked for ("use Soniox for this one").
+		const asked = ["local", "soniox"].includes(b.engine) ? b.engine : job.engine || "soniox";
+		const way = engineFor(asked);
+		if (way.error) return sendJson(res, 400, { error: { type: way.type, message: way.error } });
+		if (way.engine !== (job.engine || "soniox")) {
+			// Changing the way starts the recording afresh: only the recording itself is kept.
+			for (const name of fs.readdirSync(jobDir(job.id)))
+				if (name !== "job.json" && name !== job.audio)
+					fs.rmSync(path.join(jobDir(job.id), name), { force: true });
+			job.parts = [];
+			job.part = 0;
+			job.engine = way.engine;
+		}
 		// Trying again with nothing yet done: work out the parts afresh (a converter may be here now).
 		if (!job.parts.some((p) => p.done)) {
 			job.parts = [];
 			job.part = 0;
 		}
 		job.error = "";
+		job.progress = 0;
 		setState(job, "queued");
 		enqueue(job);
 	}
@@ -2139,7 +2597,7 @@ async function recordingsApi(req, res, url) {
 	}
 	if (action === "data" && req.method === "PUT")
 		return receivePiece(req, res, job, Number(url.searchParams.get("at")));
-	if (action === "start" && req.method === "POST") return startRecording(res, job);
+	if (action === "start" && req.method === "POST") return startRecording(req, res, job);
 	if (action === "claim" && req.method === "POST") return claimRecording(req, res, job);
 	req.resume();
 	return notFound(res);
@@ -2183,12 +2641,16 @@ const localSha = (file) => {
 		return "";
 	}
 };
-function hubChanged() {
-	const want = lastCheck.files["hub/hub.cjs"];
-	return !!want && want !== localSha(__filename);
-}
+// The server is two files: this one, and speech.cjs for the free speech models.
+const HUB_FILES = ["hub/hub.cjs", "hub/speech.cjs"];
+const hubFile = (name) => path.join(__dirname, path.basename(name));
+const hubFileChanged = (name) => {
+	const want = lastCheck.files[name];
+	return !!want && want !== localSha(hubFile(name));
+};
+const hubChanged = () => HUB_FILES.some(hubFileChanged);
 let updating = null;
-async function update({ withHub }) {
+async function update({ withHub, speechFile }) {
 	if (updating) return updating;
 	updating = (async () => {
 		const v = await checkUpdate();
@@ -2204,11 +2666,14 @@ async function update({ withHub }) {
 		// Download and check everything first, then swap; a half-finished update changes nothing.
 		const staged = [];
 		for (const [name, want] of Object.entries(v.files)) {
-			const isHub = name === "hub/hub.cjs";
+			const isHub = HUB_FILES.includes(name);
 			if (name.includes("..") || (!isHub && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)))
 				continue;
 			if (!isHub && !TYPES[path.extname(name).toLowerCase()]) continue;
-			if (isHub ? !(withHub && needHub) : localSha(path.join(APP, name)) === want) continue;
+			// speech.cjs is also fetched by itself when it isn't here at all (a server from before it).
+			const lone = speechFile && name === "hub/speech.cjs" && !fs.existsSync(hubFile(name));
+			if (isHub ? !(lone || (withHub && needHub && hubFileChanged(name))) : localSha(path.join(APP, name)) === want)
+				continue;
 			const buf = await fetchBuf(`${SOURCE}/${name}`);
 			if (sha256(buf) !== want)
 				return {
@@ -2217,14 +2682,14 @@ async function update({ withHub }) {
 				};
 			staged.push({ name, buf, isHub });
 		}
-		const hub = staged.find((x) => x.isHub);
-		if (hub) {
+		const hub = staged.filter((x) => x.isHub);
+		for (const x of hub) {
 			// Named .cjs so Node checks it as what it is.
-			const next = path.join(path.dirname(__filename), "hub.next.cjs");
-			fs.writeFileSync(next, hub.buf);
-			const check = spawnSync(process.execPath, ["--check", next], { encoding: "utf8" });
+			x.next = `${hubFile(x.name)}.next.cjs`;
+			fs.writeFileSync(x.next, x.buf);
+			const check = spawnSync(process.execPath, ["--check", x.next], { encoding: "utf8" });
 			if (check.status !== 0) {
-				fs.rmSync(next, { force: true });
+				for (const y of hub) if (y.next) fs.rmSync(y.next, { force: true });
 				return {
 					ok: false,
 					message:
@@ -2241,16 +2706,22 @@ async function update({ withHub }) {
 			log(`The web app is now ${appVersion() || v.latest}.`);
 			announce({ app: appVersion() || v.latest });
 		}
-		if (hub) {
-			fs.copyFileSync(__filename, `${__filename}.previous`);
-			fs.renameSync(path.join(path.dirname(__filename), "hub.next.cjs"), __filename);
-			log("Updated the Mac mini's server; restarting.");
-			return {
-				ok: true,
-				restart: true,
-				message:
-					"Updated. The Mac mini restarts AllKnowing now; the page reconnects in a few seconds.",
-			};
+		if (hub.length) {
+			for (const x of hub) {
+				const file = hubFile(x.name);
+				if (fs.existsSync(file)) fs.copyFileSync(file, `${file}.previous`);
+				fs.renameSync(x.next, file);
+			}
+			// speech.cjs arriving for the first time is simply used; anything else needs a fresh start.
+			if (hub.some((x) => x.name === "hub/hub.cjs") || speechLib) {
+				log("Updated the Mac mini's server; restarting.");
+				return {
+					ok: true,
+					restart: true,
+					message:
+						"Updated. The Mac mini restarts AllKnowing now; the page reconnects in a few seconds.",
+				};
+			}
 		}
 		return {
 			ok: true,
@@ -2324,6 +2795,7 @@ function status() {
 		app: appVersion(),
 		claude: !!cfg.claudeKey,
 		speech: !!cfg.speechKey,
+		local: speechInfo(),
 		code: cfg.code,
 		links: links(),
 		meetings,
@@ -2377,6 +2849,11 @@ async function api(req, res, url) {
 	if (route === "/v1/messages" && req.method === "POST") return claudeMessages(req, res);
 	if (route === "/api/speech-key" && req.method === "POST") return speechKey(res);
 	if (route.startsWith("/api/transcribe")) return recordingsApi(req, res, url);
+	if (route === "/api/speech" && req.method === "GET") return sendJson(res, 200, speechInfo());
+	if (route === "/api/speech/setup" && req.method === "POST") {
+		if (local.state !== "ready") setupSpeech();
+		return sendJson(res, 200, speechInfo());
+	}
 	if (route === "/api/status" && req.method === "GET") {
 		if (Date.now() - lastCheck.at > 6 * 3600000) checkUpdate().catch(() => null);
 		return sendJson(res, 200, status());
@@ -2505,6 +2982,7 @@ function main() {
 		);
 		ensureApp();
 		backupIfDue();
+		startSpeech();
 		loadJobs();
 		tidyRecordings();
 		if (cfg.keepAwake && process.platform === "darwin") {

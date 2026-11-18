@@ -520,6 +520,8 @@ fs.writeFileSync(a[7], wav(secondsOf(a[6])));
 			env: {
 				...process.env,
 				AK_HUB_HOME: home,
+				// These are the checks of the Soniox way; the Mac's own models are checked in check-speech.cjs.
+				AK_HUB_SPEECH: "off",
 				AK_HUB_PORT: String(port),
 				AK_HUB_BIND: "127.0.0.1",
 				AK_HUB_SONIOX: `http://127.0.0.1:${soniox.address().port}`,

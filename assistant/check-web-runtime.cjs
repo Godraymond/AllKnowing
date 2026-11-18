@@ -716,6 +716,7 @@ vm.runInNewContext(code, sandbox);
 				api: hub.api,
 				claude: hub.keys.claude,
 				speech: hub.keys.speech,
+				...(hub.local ? { local: hub.local } : {}),
 				code: CODE,
 				app: "t1",
 				links: {
@@ -808,6 +809,12 @@ vm.runInNewContext(code, sandbox);
 				return resp(200, { received: have + init.body.length });
 			}
 			if (rec[2] === "start") {
+				// What was asked along with it, if anything (the other way to transcribe).
+				try {
+					job.again = JSON.parse(init.body || "{}").engine;
+				} catch {
+					job.again = undefined;
+				}
 				if (job.state === "receiving" || job.state === "error") job.state = "queued";
 				return resp(200, { id: job.id, state: job.state });
 			}
@@ -1123,7 +1130,45 @@ vm.runInNewContext(code, sandbox);
 		/Add your Soniox speech key/.test(keylessTx.unavailable),
 		keylessTx.unavailable,
 	);
+	// The Mac mini's own free speech models (HUB_API 3): what the page is told about them.
+	hub.api = 3;
+	const withLocal = async (local) => {
+		hub.local = local;
+		return (await onHub().claude.use("transcribe"));
+	};
+	let lt = await withLocal({ state: "getting", progress: 0.43, error: "", perHour: 0, models: [] });
+	ok(
+		"its own models still on their way and no key: says to come back, and how far it is",
+		/still getting its free speech models ready \(43% fetched\)/.test(lt.unavailable) &&
+			lt.ways.local === 0 &&
+			!lt.ways.soniox &&
+			lt.ways.getting === 0.43,
+		`${lt.unavailable} ${JSON.stringify(lt.ways)}`,
+	);
+	lt = await withLocal({ state: "error", error: "They didn't work when tried.", perHour: 0 });
+	ok(
+		"its own models wouldn't run and no key: says why",
+		/They didn't work when tried\. Look at the “Mac mini” box/.test(lt.unavailable) && lt.ways.getting === -1,
+		lt.unavailable,
+	);
+	lt = await withLocal({ state: "off", error: "", perHour: 0 });
+	ok("its own models switched off and no key: asks for the Soniox key", /Add your Soniox speech key/.test(lt.unavailable));
+	lt = await withLocal({ state: "ready", error: "", perHour: 2100, models: ["SenseVoice", "Qwen3-ASR"] });
+	ok(
+		"its own models ready: recordings can go, with no key at all",
+		lt.unavailable === "" && lt.ways.local === 2100 && !lt.ways.soniox && lt.ways.models.length === 2,
+		`${lt.unavailable} ${JSON.stringify(lt.ways)}`,
+	);
+	const freeJob = await lt.send(recording(), { engine: "local" });
+	ok("the way that was picked is said to the Mac mini", hub.jobs.get(freeJob.id).asked.engine === "local", JSON.stringify(hub.jobs.get(freeJob.id).asked));
+	const plainJob = await lt.send(recording(), {});
+	ok("…and nothing is said when none was", !("engine" in hub.jobs.get(plainJob.id).asked));
 	hub.keys.speech = true;
+	lt = await withLocal({ state: "getting", progress: 0.1, error: "", perHour: 0 });
+	ok("still fetching but a key is saved: recordings can go by Soniox meanwhile", lt.unavailable === "" && lt.ways.soniox && lt.ways.local === 0 && lt.ways.getting === 0.1);
+	await lt.retry(plainJob.id, "soniox");
+	ok("trying again can ask for the other way", hub.jobs.get(plainJob.id).again === "soniox", String(hub.jobs.get(plainJob.id).again));
+	hub.local = null;
 
 	console.log(fails ? `\n${fails} FAILED` : "\nALL PASS");
 	process.exit(fails ? 1 : 0);

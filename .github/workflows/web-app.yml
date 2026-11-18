@@ -47,6 +47,9 @@ jobs:
       - name: Check recordings turned into text
         run: node assistant/check-recordings.cjs
 
+      - name: Check recordings turned into text on the Mac itself
+        run: node assistant/check-speech.cjs
+
       - name: Check the Mac relay
         run: node assistant/check-relay.cjs
 

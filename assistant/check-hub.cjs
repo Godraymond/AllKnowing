@@ -105,6 +105,8 @@ const readAll = (req) =>
 			env: {
 				...process.env,
 				AK_HUB_HOME: home,
+				// The free speech models have their own check (check-speech.cjs); here they would be fetched for real.
+				AK_HUB_SPEECH: "off",
 				AK_HUB_PORT: String(port),
 				AK_HUB_BIND: "127.0.0.1",
 				AK_HUB_ANTHROPIC: `http://127.0.0.1:${claude.address().port}`,
@@ -647,6 +649,8 @@ const readAll = (req) =>
 			env: {
 				...process.env,
 				AK_HUB_HOME: home,
+				// The free speech models have their own check (check-speech.cjs); here they would be fetched for real.
+				AK_HUB_SPEECH: "off",
 				AK_HUB_PORT: String(port),
 				AK_HUB_BIND: "127.0.0.1",
 				AK_HUB_SOURCE: `http://127.0.0.1:${github.address().port}`,

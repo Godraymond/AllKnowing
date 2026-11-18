@@ -16,7 +16,7 @@
    Served by the Mac mini (hub/hub.cjs, which marks the page with <meta name="allknowing-hub">), it works
    differently: the meetings live on the Mac mini (`db`, shared by every device that has the pairing code),
    and the keys stay there too. Claude is asked through the Mac mini, and listening gets a one-use key
-   from it for each connection. It also takes recordings there (`transcribe`): the Mac mini has Soniox
+   from it for each connection. It also takes recordings there (`transcribe`): the Mac mini has its own models or Soniox
    turn the file into text.
    The build (assistant/build-web.cjs) adds this file to the page; the artifact never loads it. */
 (() => {
@@ -420,10 +420,12 @@
 		return j.api_key;
 	}
 
-	/* ---------- recordings: the Mac mini has them turned into text ----------
+	/* ---------- recordings: the Mac mini turns them into text ----------
 	   A recording goes to the Mac mini a few megabytes at a time, so a phone on a patchy connection carries
-	   on from where it got to. From there the Mac mini does the rest by itself (it has Soniox turn the audio
-	   into text, with the key it keeps), and the page asks how it's going, then takes the text. */
+	   on from where it got to. From there the Mac mini does the rest by itself, and the page asks how it's
+	   going, then takes the text. The Mac mini has two ways: its own free speech models, which check each
+	   other and keep the audio at home ("local"), and Soniox with the key it keeps, which is quicker and
+	   costs a little ("soniox"). */
 	const txUrl = (id, rest = "") => `/api/transcribe/${enc(id)}${rest}`;
 	// Says which open page took a transcript to save, so the same page can take it again if it has to.
 	const THIS_PAGE = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -445,12 +447,36 @@
 				return hubMissing() || "Checking with your Mac mini…";
 			if ((Number(hub.status.api) || 1) < 2)
 				return "Your Mac mini needs the latest version of AllKnowing before it can turn recordings into text. Get it in the “Mac mini” box on the Home screen.";
-			if (!hub.status.speech)
-				return "Add your Soniox speech key in the “Mac mini” box on the Home screen first. It's what turns recordings into text.";
-			return "";
+			const w = transcribe.ways;
+			if (w.local || w.soniox) return "";
+			const l = hub.status.local || {};
+			if (w.getting >= 0)
+				return `Your Mac mini is still getting its free speech models ready${l.state === "getting" && l.progress ? ` (${Math.round(l.progress * 100)}% fetched)` : ""}. It's a one-off; come back in a little while.`;
+			if (l.state === "error")
+				return `${l.error} Look at the “Mac mini” box on the Home screen.`;
+			// Its own models aren't there (an older Mac mini, or switched off): Soniox is the way.
+			return "Add your Soniox speech key in the “Mac mini” box on the Home screen first. It's what turns recordings into text.";
 		},
+		// The ways a recording can be turned into text right now.
+		//   local: seconds of work for an hour of recording with the Mac mini's own free models (0: not ready)
+		//   soniox: whether a speech key is saved
+		//   getting: how far the free models' download is, 0 to 1 (-1: not under way)
+		get ways() {
+			const st = hub.status || {};
+			const l = st.local || {};
+			return {
+				local: l.state === "ready" ? Number(l.perHour) || 1800 : 0,
+				soniox: !!st.speech,
+				getting: ["getting", "checking", "none"].includes(l.state)
+					? Number(l.progress) || 0
+					: -1,
+				models: l.models || [],
+			};
+		},
+		// Ask the Mac mini again how things stand (its models may have finished downloading).
+		refresh: () => refreshStatus(),
 		// Sends the file and starts the work. Resolves with the job once the Mac mini has all of it.
-		async send(file, { language = "", terms = [], topic = "", onProgress, signal } = {}) {
+		async send(file, { language = "", terms = [], topic = "", engine = "", onProgress, signal } = {}) {
 			const made = await (
 				await hubOk("/api/transcribe", {
 					method: "POST",
@@ -461,6 +487,7 @@
 						hints: speechHints(language),
 						terms,
 						topic,
+						...(engine ? { engine } : {}),
 					}),
 					signal,
 				})
@@ -525,8 +552,15 @@
 			if (!res.ok) throw fail("unavailable", `Your Mac mini said no (${res.status}).`);
 			return res.json();
 		},
-		// After an error: once more from where it stopped.
-		retry: async (id) => (await hubOk(txUrl(id, "/start"), { method: "POST" })).json(),
+		// After an error: once more from where it stopped, or the other way ("soniox" or "local").
+		retry: async (id, engine) =>
+			(
+				await hubOk(txUrl(id, "/start"), {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify(engine ? { engine } : {}),
+				})
+			).json(),
 		// The text, for the one device that saves it. { claimed: true } when another device is doing that.
 		async claim(id) {
 			const res = await hubFetch(txUrl(id, "/claim"), {
@@ -1959,6 +1993,70 @@ registerProcessor("ak-pcm", AkPcm);`;
 			tips.map((t) => el("li", null, t)),
 		);
 	}
+	// The Mac mini's own speech models, for recordings: fetched once, then free to use.
+	let speechTimer = 0;
+	function speechBlock(st) {
+		const l = st.local;
+		clearTimeout(speechTimer);
+		if (!l || l.state === "off") return null;
+		const title = el(
+			"span",
+			{ class: "small-text", style: "font-weight:600" },
+			"Recordings, turned into text for free",
+		);
+		const box = el("div", { class: "stack", style: "gap:4px" }, title);
+		if (l.state === "ready") {
+			const mins = Math.max(1, Math.round((Number(l.perHour) || 1800) / 60));
+			box.append(
+				el(
+					"span",
+					{ class: "small-text muted" },
+					`Ready. Three free speech models on this Mac mini hear every recording you import and check each other, so it costs nothing and the audio stays here. An hour of recording takes about ${mins} minutes.`,
+				),
+			);
+			return box;
+		}
+		if (l.state === "error") {
+			const again = el("button", { type: "button", class: "btn small" }, "Try again");
+			again.addEventListener("click", async () => {
+				again.disabled = true;
+				await hubFetch("/api/speech/setup", { method: "POST" }).catch(() => null);
+				refreshStatus();
+			});
+			box.append(
+				el("span", { class: "small-text" }, l.error || "The speech models aren't set up."),
+				el("div", { class: "row" }, again),
+			);
+			// What the engine said, for whoever is asked to look into it.
+			if (l.detail)
+				box.append(
+					el(
+						"span",
+						{ class: "small-text muted", style: "word-break:break-word" },
+						`Details: ${l.detail}`,
+					),
+				);
+			return box;
+		}
+		const pct = Math.round((Number(l.progress) || 0) * 100);
+		const gb = l.bytes ? ` of ${(l.bytes / 1e9).toFixed(1)} GB` : "";
+		box.append(
+			el(
+				"span",
+				{ class: "small-text muted", role: "status" },
+				l.state === "checking"
+					? "Trying the speech models out on this Mac mini…"
+					: l.state === "getting"
+						? `Fetching the free speech models, once: ${pct}%${gb}${l.item ? ` (${l.item})` : ""}. Recordings can be imported when it's done.`
+						: "Getting ready to fetch the free speech models…",
+			),
+		);
+		// While it's under way the box keeps itself up to date.
+		speechTimer = setTimeout(() => {
+			if (cardEl && cardEl.isConnected) refreshStatus();
+		}, 4000);
+		return box;
+	}
 	function hubCard() {
 		const st = hub.status || {};
 		const head = el(
@@ -2007,6 +2105,8 @@ registerProcessor("ak-pcm", AkPcm);`;
 			// Once both keys are in, the details fold away so the box doesn't push everything else down a phone screen.
 			const ready = !!(st.claude && st.speech);
 			const parts = [];
+			const models = speechBlock(st);
+			if (models && (st.local || {}).state !== "ready") body.append(models);
 			body.append(
 				el(
 					"p",
@@ -2042,7 +2142,7 @@ registerProcessor("ak-pcm", AkPcm);`;
 					el(
 						"span",
 						null,
-						"Turns sound into words and tells the voices apart, live and for recordings you import. From ",
+						"Turns sound into words and tells the voices apart while you listen live. Recordings you import don't need it: the Mac mini's own free models do those. From ",
 						link("https://console.soniox.com", "console.soniox.com"),
 						". It hears the audio.",
 					),
@@ -2054,6 +2154,7 @@ registerProcessor("ak-pcm", AkPcm);`;
 					modelField("akQuick", "Model for “Fast” and “What should I say?”", "quick"),
 					modelField("akThorough", "Model for “Thorough”, plans and minutes", "thorough"),
 				),
+				...(models && (st.local || {}).state === "ready" ? [models] : []),
 				linksBlock(st),
 				el(
 					"div",

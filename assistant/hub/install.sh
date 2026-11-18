@@ -106,7 +106,7 @@ const get = async (name) => {
 	const staged = [];
 	for (const [name, want] of Object.entries(v.files || {})) {
 		if (name === "hub/install.sh") continue;
-		const target = name === "hub/hub.cjs" ? path.join(dir, "hub", "hub.cjs") : /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) ? path.join(dir, "app", name) : null;
+		const target = name === "hub/hub.cjs" || name === "hub/speech.cjs" ? path.join(dir, name) : /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) ? path.join(dir, "app", name) : null;
 		if (!target) continue;
 		const buf = await get(name);
 		if (crypto.createHash("sha256").update(buf).digest("hex") !== want) throw new Error(`${name} didn't match its published hash`);
@@ -125,6 +125,7 @@ const get = async (name) => {
 });
 JS
 "$NODE" --check "$DIR/hub/hub.cjs" || stop "The downloaded server didn't pass its check. Try again in a few minutes."
+[ ! -f "$DIR/hub/speech.cjs" ] || "$NODE" --check "$DIR/hub/speech.cjs" || stop "The downloaded server didn't pass its check. Try again in a few minutes."
 
 # ---- settings: a pairing code the first time; your keys and notes are kept ----
 "$NODE" - "$DIR/config.json" "$PORT" <<'JS'
@@ -247,6 +248,7 @@ bold "Done."
 printf '\n  Pairing code:  \033[1m%s\033[0m   (each phone or computer asks for it once)\n' "$CODE"
 note ""
 note "On this Mac:               http://localhost:$PORT   (add your Claude and Soniox keys here, once)"
+note "Recordings:                it is now fetching its free speech models (about 1.8 GB, once). The Mac mini box on Home shows how far."
 note "At home, other devices:    http://$LAN_NAME.local:$PORT   (reading, preparing, importing)"
 if [ -n "$TS_URL" ]; then
 	note "Anywhere, with listening:  $TS_URL   (needs Tailscale on that device)"

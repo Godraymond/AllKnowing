@@ -1,0 +1,17 @@
+{
+  "version": "2026-11-18.d16de19",
+  "built": "2026-11-18T03:27:42.603Z",
+  "hubApi": 3,
+  "files": {
+    "hub/hub.cjs": "5f79eb4ece1c0d1422b8d7092b9f227170bd967fbde37d3b376abdfed6593e79",
+    "hub/install.sh": "75f5a37591f6fe64b277283d530faf488d87adfdb4f37c6599ee472f968134fc",
+    "hub/speech.cjs": "5d70cb7a326d035d7d90faeb08e1d0e769f2be0deb39d5c050e63e85187a439d",
+    "icon-180.png": "5357fa9c6df0a79e10ffc1cc512dca665a0957a8e1fec6d1c2e5a8ebe9a6ace9",
+    "icon-192.png": "4cb9fb845a982f97a23c1f17d90dee6fee13b615b0c3c1d7f0bc3f788a9639c8",
+    "icon-512.png": "71d31b89c602c54c4059fda3cad2e949455fdca703f54038775713ad0036bbd5",
+    "icon-maskable-512.png": "83371a9a314d3022328d59eeb86564a6ae43296d613ae841afd005f9a84350a9",
+    "index.html": "1872f623ab6bdfcfb2f2dd028c921044936966d69ce3d8a6e3af66034ed48321",
+    "manifest.webmanifest": "5560aaee180b009a3f9713a3faea1e0cd60ad955732def7af72bbc3efa8f3ae5",
+    "standalone.js": "1ab4f6666d1fc4704770906734f46897ce0ba1acfe549d493616d5d65888e733"
+  }
+}

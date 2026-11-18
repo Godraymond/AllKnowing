@@ -341,6 +341,10 @@ const sx = {
 	uploadStatus: 0,
 	txError: "",
 	noExtras: false,
+	// How long (ms) an answer is held back after the file or the transcription has been made: the
+	// moment in which a job that is stopped can't yet know what Soniox has of it.
+	slowTake: 0,
+	slowMake: 0,
 	models: [
 		{ id: "stt-rt-v4", aliased_model_id: null, transcription_mode: "real_time" },
 		{ id: "stt-async-v6", aliased_model_id: null, transcription_mode: "async" },
@@ -400,6 +404,7 @@ function formFile(type, body) {
 			const id = crypto.randomUUID();
 			sx.files.set(id, { id, name: f.name, bytes: f.bytes });
 			sx.uploads.push({ id, name: f.name, bytes: f.bytes });
+			if (sx.slowTake) await sleep(sx.slowTake);
 			return send(201, {
 				id,
 				filename: f.name,
@@ -418,6 +423,7 @@ function formFile(type, body) {
 			const id = crypto.randomUUID();
 			sx.txs.set(id, { id, file, polls: 0 });
 			sx.made.push({ id, config, file });
+			if (sx.slowMake) await sleep(sx.slowMake);
 			return send(201, { id, status: "queued", model: config.model, filename: file.name });
 		}
 		const tx = /^\/v1\/transcriptions\/([^/]+)(\/transcript)?$/.exec(req.url);
@@ -636,6 +642,15 @@ fs.writeFileSync(a[7], wav(secondsOf(a[6])));
 		}
 	};
 	const claim = (id, by = "page-1") => req("POST", `${T}/${id}/claim`, { body: { by } });
+	const until = async (fn, ms = 5000) => {
+		const t0 = Date.now();
+		while (Date.now() - t0 < ms) {
+			if (await fn()) return true;
+			await sleep(15);
+		}
+		return !!(await fn());
+	};
+	const cleanAtSoniox = () => sx.files.size === 0 && sx.txs.size === 0;
 	// Is this the script from 0 to `seconds`: every word once, in order, each voice one number throughout?
 	function isScript(result, seconds) {
 		const lines = (result && result.lines) || [];
@@ -1330,7 +1345,7 @@ fs.writeFileSync(a[7], wav(secondsOf(a[6])));
 		const c1 = await send("Changed my mind.wav", shortWav);
 		await follow(c1.id, ["transcribing"]);
 		const dropped = await req("DELETE", `${T}/${c1.id}`);
-		await sleep(300);
+		await until(cleanAtSoniox);
 		ok(
 			"stopping one drops it here and at Soniox",
 			dropped.status === 200 &&
@@ -1339,6 +1354,54 @@ fs.writeFileSync(a[7], wav(secondsOf(a[6])));
 				sx.files.size === 0 &&
 				sx.txs.size === 0,
 			`${jobFiles(c1.id)}; ${sx.files.size} files, ${sx.txs.size} transcriptions at Soniox`,
+		);
+		// Stopped in the moment Soniox has made the transcription but hasn't yet said so: the Mac mini
+		// can't know which one to delete until the answer is in, so it waits for it instead of hanging up.
+		let madeBefore = sx.made.length;
+		sx.slowMake = 500;
+		const c2 = await send("Stopped as it was asked for.wav", shortWav);
+		await until(() => sx.made.length > madeBefore);
+		const dropped2 = await req("DELETE", `${T}/${c2.id}`);
+		const during = `${sx.files.size} files, ${sx.txs.size} transcriptions`;
+		await until(cleanAtSoniox);
+		ok(
+			"stopped just as Soniox was asked for the text: what it made in that moment goes too",
+			dropped2.status === 200 &&
+				sx.made.length === madeBefore + 1 &&
+				jobFiles(c2.id) === "(gone)" &&
+				cleanAtSoniox(),
+			`at the stop: ${during}; after: ${sx.files.size} files, ${sx.txs.size} transcriptions at Soniox`,
+		);
+		sx.slowMake = 0;
+		// The same for the file: stopped when all of it has gone up but Soniox hasn't answered.
+		madeBefore = sx.made.length;
+		const sentBefore2 = sx.uploads.length;
+		sx.slowTake = 500;
+		const c3 = await send("Stopped as it landed.wav", shortWav);
+		await until(() => sx.uploads.length > sentBefore2);
+		const dropped3 = await req("DELETE", `${T}/${c3.id}`);
+		const during3 = `${sx.files.size} files`;
+		await until(cleanAtSoniox);
+		await sleep(150);
+		ok(
+			"stopped just as the file landed at Soniox: the file goes too, and no text is asked for",
+			dropped3.status === 200 &&
+				sx.uploads.length === sentBefore2 + 1 &&
+				sx.made.length === madeBefore &&
+				jobFiles(c3.id) === "(gone)" &&
+				cleanAtSoniox(),
+			`at the stop: ${during3}; after: ${sx.files.size} files, ${sx.txs.size} transcriptions, ${sx.made.length - madeBefore} asked for`,
+		);
+		sx.slowTake = 0;
+		// Stopped part-way through the upload: it is cut, and Soniox never has the file.
+		const sentBefore3 = sx.uploads.length;
+		const c4 = await send("Stopped on its way up.wav", shortWav);
+		const dropped4 = await req("DELETE", `${T}/${c4.id}`);
+		await sleep(400);
+		ok(
+			"stopped before or while it goes up: Soniox is left with nothing",
+			dropped4.status === 200 && jobFiles(c4.id) === "(gone)" && cleanAtSoniox(),
+			`${sx.uploads.length - sentBefore3} uploads; ${sx.files.size} files, ${sx.txs.size} transcriptions at Soniox`,
 		);
 		sx.hold = false;
 		const next = await run("After that.wav", shortWav);

@@ -34,7 +34,7 @@ const { spawn, spawnSync } = require("node:child_process");
 const { Readable } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
 
-const VERSION = "1.2";
+const VERSION = "1.2.1";
 // What the page may expect from this hub. A page that needs more waits for the hub to be updated.
 // 2: recordings turned into text (/api/transcribe).
 // 3: recordings turned into text on this Mac, by free speech models (status.local, engine).
@@ -1363,6 +1363,8 @@ const unreachable = () =>
 	);
 // One call to Soniox, with the key that stays on this Mac.
 async function soniox(method, route, body, signal) {
+	// Already stopped: an abort that has happened never fires again, so the call would go ahead.
+	if (signal?.aborted) throw unreachable();
 	const ctl = new AbortController();
 	const timer = setTimeout(() => ctl.abort(), 120000);
 	const stop = () => ctl.abort();
@@ -1398,6 +1400,11 @@ async function soniox(method, route, body, signal) {
 // Sends one file to Soniox (POST /v1/files, as a form), straight from the disk.
 function sonioxUpload(file, name, signal) {
 	return new Promise((resolve, reject) => {
+		// Already stopped: nothing goes up.
+		if (signal?.aborted) {
+			reject(unreachable());
+			return;
+		}
 		const lost = () =>
 			userError("The Mac mini no longer has this recording's audio. Import it again.");
 		let size = 0;
@@ -1443,7 +1450,15 @@ function sonioxUpload(file, name, signal) {
 				res.on("error", () => reject(unreachable()));
 			},
 		);
-		const stop = () => req.destroy();
+		// Stopped part-way: the upload is cut and Soniox keeps nothing. Stopped once the whole file has
+		// gone: Soniox may already have it, so its answer is waited for and the caller deletes the file.
+		let gone = false;
+		req.on("finish", () => {
+			gone = true;
+		});
+		const stop = () => {
+			if (!gone) req.destroy();
+		};
 		if (signal) signal.addEventListener("abort", stop, { once: true });
 		req.setTimeout(5 * 60000, () => req.destroy());
 		req.on("error", () => reject(unread ? lost() : unreachable()));
@@ -1489,7 +1504,9 @@ async function fileModel(signal) {
 	modelChoice = { at: Date.now(), model };
 	return model;
 }
-async function startTranscription(job, part, model, signal) {
+// Not cut off when the job is stopped: Soniox may have made the transcription by then, and its answer
+// is the only way to learn which one to delete. The caller deletes it once it is known.
+async function startTranscription(job, part, model) {
 	const body = { model, file_id: part.fileId, enable_speaker_diarization: true };
 	if (job.hints.length) body.language_hints = job.hints;
 	const context = {};
@@ -1498,11 +1515,11 @@ async function startTranscription(job, part, model, signal) {
 	const extras = { client_reference_id: `allknowing-${job.id}-${part.i + 1}` };
 	if (Object.keys(context).length) extras.context = context;
 	try {
-		return await soniox("POST", "/v1/transcriptions", { ...body, ...extras }, signal);
+		return await soniox("POST", "/v1/transcriptions", { ...body, ...extras });
 	} catch (e) {
 		// A model that doesn't take the extras: once more with only what it must have.
-		if (e.status !== 400 && e.status !== 422) throw e;
-		return soniox("POST", "/v1/transcriptions", body, signal);
+		if ((e.status !== 400 && e.status !== 422) || stopped(job)) throw e;
+		return soniox("POST", "/v1/transcriptions", body);
 	}
 }
 // Tries again when Soniox is busy or can't be reached: after 2, 4, 8… seconds, six times in all.
@@ -2261,6 +2278,7 @@ async function transcribeJob(job) {
 		if (part.done) continue;
 		job.part = part.i;
 		for (let tries = 0; !part.txId; tries++) {
+			if (stopped(job)) return;
 			if (!part.fileId) {
 				setState(job, "sending");
 				const name = `part-${part.i + 1}${path.extname(part.file) || ".bin"}`;
@@ -2275,16 +2293,15 @@ async function transcribeJob(job) {
 			}
 			setState(job, "transcribing");
 			try {
-				const made = await patiently(job, () =>
-					startTranscription(job, part, job.model, signal),
-				);
+				const made = await patiently(job, () => startTranscription(job, part, job.model));
 				part.txId = String(made.id || "");
+				// Stopped while Soniox was being asked: what it just made goes again.
 				if (stopped(job)) return forgetAtSoniox(part);
 				if (!part.txId) throw userError("Soniox didn't start on the recording. Try again.");
 				saveJob(job);
 			} catch (e) {
 				// The file isn't at Soniox any more (it was sent before a long break): send it again, once.
-				if (e.status !== 404 || tries) throw e;
+				if (e.status !== 404 || tries || stopped(job)) throw e;
 				part.fileId = "";
 			}
 		}

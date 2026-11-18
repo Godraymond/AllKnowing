@@ -41,6 +41,9 @@ jobs:
       - name: Check the web app's runtime
         run: node assistant/check-web-runtime.cjs
 
+      - name: Check key quotes are held to the transcript
+        run: node assistant/check-quotes.cjs
+
       - name: Check the Mac mini's server
         run: node assistant/check-hub.cjs
 

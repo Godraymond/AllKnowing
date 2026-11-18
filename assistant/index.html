@@ -193,9 +193,44 @@ main { padding: 20px; max-width: 1480px; margin: 0 auto; }
 .situation { font-size: 15.5px; margin: 8px 0 0; }
 .watch { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
 .watch li { border-left: 3px solid var(--warn); padding: 5px 10px; background: color-mix(in srgb, var(--warn) 11%, transparent); border-radius: 0 8px 8px 0; font-size: 14px; }
-.topics { display: grid; gap: 12px; }
-.topic h3 { font-family: var(--font-body); font-size: 14.5px; font-weight: 700; }
 .banner { padding: 10px 14px; border-radius: 10px; background: color-mix(in srgb, var(--warn) 13%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 12px; font-size: 14px; }
+
+/* The mind map: the meeting, a branch per topic, its points as leaves. Boxes and lines only, so it
+   grows with the meeting and long text wraps by itself. Where its box has room it lies left to right. */
+.mm-wrap { container-type: inline-size; overflow-x: auto; padding: 4px 2px 10px; -webkit-overflow-scrolling: touch; }
+.mm { display: inline-flex; align-items: center; min-width: max-content; font-size: 13.5px; line-height: 1.35; }
+.mm ul { list-style: none; margin: 0; padding: 0 0 0 26px; display: flex; flex-direction: column; justify-content: center; position: relative; }
+.mm li { display: flex; align-items: center; position: relative; padding: 3px 0; }
+.mm ul::before { content: ""; position: absolute; left: 0; top: 50%; width: 13px; border-top: 2px solid var(--c, var(--line)); }
+.mm li::before { content: ""; position: absolute; left: -13px; top: 0; bottom: 0; border-left: 2px solid var(--c, var(--line)); }
+.mm li::after { content: ""; position: absolute; left: -13px; top: 50%; width: 13px; border-top: 2px solid var(--c, var(--line)); }
+.mm li:first-child::before { top: 50%; }
+.mm li:last-child::before { bottom: 50%; }
+.mm li:only-child::before { display: none; }
+.mm-node { border-radius: 10px; padding: 5px 10px; border: 1.5px solid var(--c, var(--line)); background: var(--surface); overflow-wrap: anywhere; }
+.mm-root { font-weight: 700; font-size: 14.5px; background: var(--accent); color: var(--accent-ink); border-color: transparent; max-width: 150px; padding: 9px 13px; }
+.mm-topic { font-weight: 650; max-width: 180px; background: color-mix(in srgb, var(--c) 12%, var(--surface)); }
+.mm-leaf { border: 0; border-bottom: 1.5px solid var(--c, var(--line)); border-radius: 0; background: none; padding: 2px 4px; max-width: 260px; max-width: clamp(220px, 45cqw, 460px); }
+/* Where its box is narrow (a phone, the side column of the Live screen) the mind map stands up: the
+   meeting on top, each topic under it with its points indented below, so every word is on the screen
+   with nothing to swipe to. */
+@container (max-width: 760px) {
+  .mm { display: block; min-width: 0; font-size: 14.5px; }
+  .mm ul { display: block; padding: 0 0 0 24px; }
+  .mm > ul { padding-left: 16px; }
+  .mm li { display: block; padding: 6px 0 0; }
+  .mm ul::before { display: none; }
+  .mm li::before, .mm li:first-child::before { left: -12px; top: 0; bottom: 0; }
+  .mm li:last-child::before, .mm li:only-child::before { display: block; bottom: auto; height: 20px; }
+  .mm li::after { left: -12px; top: 20px; width: 12px; }
+  .mm-node { display: inline-block; max-width: none; }
+  .mm-leaf { display: block; }
+}
+/* Things said that are worth keeping word for word, with who said them and why they matter. */
+.kq { margin: 0; padding: 2px 0 2px 12px; border-left: 3px solid var(--accent); }
+.kq blockquote { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.4; }
+.kq figcaption { margin-top: 4px; font-size: 13px; color: var(--muted); }
+.kq .who { font-weight: 700; margin-right: 6px; }
 
 /* visual summary */
 .vs { display: grid; gap: 14px; }
@@ -274,7 +309,12 @@ details > summary { cursor: pointer; font-weight: 700; }
   .topbar { padding: 8px 14px; gap: 8px; }
   .current { margin-left: 0; width: 100%; }
   .live-grid { grid-template-columns: minmax(0, 1fr); }
-  .col-assist { order: -1; }
+  /* One column on a phone: what to say, what's going on and the picture, then the transcript, the
+     mind map and the quotes. */
+  .col-assist { display: contents; }
+  .col-transcript { order: 1; }
+  .col-detail { order: 2; }
+  .col-quotes { order: 3; }
   .transcript { height: 46vh; }
   .two, .three { grid-template-columns: minmax(0, 1fr); }
   .vs-core { grid-template-columns: minmax(0, 1fr); }
@@ -460,6 +500,7 @@ const LIVE_MEETING_SHAPE = `{
   "decisions": ["decision"],
   "open_questions": ["question"],
   "actions": [{"task": "task", "owner": "who", "due": "when, if said"}],
+  "quotes": [{"who": "speaker", "quote": "their own words", "why": "why it matters, one line"}],
   "visual": {"title": "headline", "conclusions": ["conclusion"], "cards": [{"title": "heading", "subtitle": "takeaway", "bullets": ["point"]}]},
   "say_next": [{"label": "2-4 words", "line": "exact words to say", "why": "short reason"}],
   "watch_out": ["risk"]
@@ -485,6 +526,8 @@ const minutesShape = (zh, voices = false) => `{
   "decisions": ["decision"],
   "actions": [{"task": "task", "owner": "who", "due": "YYYY-MM-DD or empty", "priority": "high|normal"}],
   "open_questions": ["question"],
+  "topics": [{"topic": "topic", "points": ["point"]}],
+  "quotes": [{"who": "speaker", "quote": "their own words", "why": "why it matters, one line"}],
   "follow_up_email": {"subject": "subject", "body": "plain text body"},
   "visual": {"title": "headline", "conclusions": ["conclusion"], "cards": [{"title": "heading", "subtitle": "takeaway", "bullets": ["point"]}]}${voices ? `,
   "voices": [{"voice": 3, "name": "who this voice is", "sure": 80}]` : ""}${zh ? `,
@@ -1015,6 +1058,46 @@ function selectEl(id, options, value, onchange, cls = "") {
   return s;
 }
 
+/* ---------- the mind map and the key quotes ---------- */
+const MAP_TONES = ["#2346d4", "#1f7a9c", "#a8431f", "#6b7a12", "#c2255c", "#5a4fcf", "#96690c", "#3d7a4a"];
+// The discussion as a tree: the meeting, its topics with their points, then what was decided, what is
+// still open and what happens next.
+function mapOf(title, topics, decisions, questions, actions) {
+  const kids = arr(topics, 10).map((t, i) => ({ label: t.topic, tone: MAP_TONES[i % MAP_TONES.length], kids: arr(t.points, 6) }));
+  if (arr(decisions).length) kids.push({ label: "Decisions", tone: "#0d8a6a", kids: arr(decisions, 8) });
+  if (arr(questions).length) kids.push({ label: "Open questions", tone: "#b4530a", kids: arr(questions, 8) });
+  if (arr(actions).length) kids.push({ label: "Next steps", tone: "#8a3fc0", kids: arr(actions, 8).map((a) => [a.task, a.owner, a.due].filter(Boolean).join(" · ")) });
+  return { label: title, kids };
+}
+function mindMapEl(tree, empty = "The mind map draws itself here as topics come up.") {
+  if (!tree || !tree.kids.length) return h("p", { class: "empty" }, empty);
+  return h("div", { class: "mm-wrap" }, h("div", { class: "mm" },
+    h("div", { class: "mm-node mm-root" }, tree.label || "Meeting"),
+    h("ul", null, tree.kids.map((b) => h("li", { style: `--c:${b.tone}` },
+      h("div", { class: "mm-node mm-topic" }, b.label),
+      b.kids.length ? h("ul", null, b.kids.map((k) => h("li", null, h("div", { class: "mm-node mm-leaf", html: inline(k) })))) : null)))));
+}
+// Minutes written before topics were asked for have only their key points to draw.
+function mapOfMinutes(m) {
+  const n = m.minutes;
+  const topics = arr(n.topics).length ? n.topics : m.live && arr(m.live.discussed).length ? m.live.discussed : arr(n.key_points).length ? [{ topic: "Key points", points: n.key_points }] : [];
+  return mapOf(n.title || titleOf(m), topics, n.decisions, n.open_questions, n.actions);
+}
+// Claude names an unnamed voice as vN; here that becomes the name it has since been given, or "Voice N".
+function quoteWho(m, who) {
+  const v = /^v(\d+)$/i.exec(str(who, 60));
+  if (!v) return str(who, 60);
+  return voiceName(m, Number(v[1])) || `Voice ${voiceOrd(Number(v[1]))}`;
+}
+function quotesEl(m, quotes, empty) {
+  const list = arr(quotes, 12).filter((q) => q && q.quote);
+  if (!list.length) return h("p", { class: "empty" }, empty);
+  return h("div", { class: "stack", style: "gap:14px" }, list.map((q) => {
+    const who = quoteWho(m, q.who);
+    return h("figure", { class: "kq" }, h("blockquote", null, `“${q.quote}”`), h("figcaption", null, who ? h("span", { class: "who" }, who) : null, q.why || ""));
+  }));
+}
+
 /* ---------- visual summary ---------- */
 function renderVisual(v, label) {
   if (!v || (!v.title && !(v.conclusions || []).length && !(v.cards || []).length)) {
@@ -1104,7 +1187,7 @@ function renderSettingsCard() {
         h("div", { class: "field" }, h("label", { for: "setDict" }, "Listening language"), selectEl("setDict", DICT_LANGS, s.dictLang, set("dictLang")))),
       h("div", { class: "two" },
         h("div", { class: "field" }, h("label", { for: "setTier" }, "Live updates"), selectEl("setTier", [["default", "Thorough (better reads)"], ["quick", "Fast (lighter on usage)"]], s.liveTier, set("liveTier"))),
-        h("div", { class: "field" }, h("label", { for: "setEvery" }, "Auto-update at most every"), selectEl("setEvery", [["45", "45 seconds"], ["60", "1 minute"], ["120", "2 minutes"], ["300", "5 minutes"]], String(s.autoEvery), (v2) => set("autoEvery")(Number(v2))))),
+        h("div", { class: "field" }, h("label", { for: "setEvery" }, "Auto-update at most every"), selectEl("setEvery", [["30", "30 seconds"], ["45", "45 seconds"], ["60", "1 minute"], ["120", "2 minutes"], ["300", "5 minutes"]], String(s.autoEvery), (v2) => set("autoEvery")(Number(v2))))),
       h("label", { class: "check" }, h("input", { type: "checkbox", checked: s.zhMinutes !== false, onchange: (e) => set("zhMinutes")(e.target.checked) }), "Add a 繁體中文 version to meeting minutes"),
       notesField()));
 }
@@ -1384,7 +1467,8 @@ function promptLiveMeeting(m) {
     liveMeetingShape(m),
     "Rules:",
     ...(voices ? [`- voices: for each vN you can put a name to, who it is. Use the attendees' names as given above, and "Me" for ${name}. Go by introductions, people being addressed by name, and things only that person would say. sure is 0-100; leave out any voice you can't place. Say who said what by voice, not only by tag.`] : []),
-    "- discussed: every topic so far, oldest first; at most 8 topics with up to 4 short points each.",
+    "- discussed: every topic so far, oldest first; at most 8 topics with up to 4 short points each. It is drawn as a mind map, so keep topics to a few words and points to one short line.",
+    `- quotes: up to 5 so far: the things said that are most worth keeping word for word (a position, a number, a commitment, a condition). ${QUOTE_RULE} Keep earlier ones that still matter.`,
     "- visual: a headline, 2-4 core conclusions, and exactly 3 cards (title, one-line subtitle, up to 4 bullets). Wrap key figures, names and terms in **double asterisks**.",
     `- say_next: 2-3 options that move ${name}'s goal forward from where the conversation is right now. Each line is natural spoken words ${name} can say in 10-20 seconds, written in the language the meeting is being held in.`,
     "- watch_out: up to 3 risks, traps, or points that conflict with the prep plan or the user's goal.",
@@ -1447,6 +1531,8 @@ function promptMinutes(m) {
     "Rules:",
     ...(voices ? [`- voices: for each vN you can put a name to, who it is. Use the attendees' names as given above, and "Me" for ${name}. Go by introductions, people being addressed by name, and things only that person would say. sure is 0-100; leave out any voice you can't place.`] : []),
     "- Flag unclear passages with (unclear) rather than guessing. Quote numbers exactly as heard.",
+    "- topics: the discussion as a map: up to 8 topics in the order they came up, each a few words, with up to 4 points of one short line.",
+    `- quotes: up to 8: the things said that are most worth keeping word for word (a position, a number, a commitment, a condition). ${QUOTE_RULE}${hasDoubts(m) ? " Where the words are inside { }, take the first reading." : ""}`,
     `- actions: every follow-up, with an owner (use "${name}" for the user) and a due date as YYYY-MM-DD when one is stated or clearly implied (today is ${localISODate()}), otherwise empty.`,
     `- follow_up_email: a short email from ${name} to the attendees recapping decisions and next steps, in the meeting's main language. Plain text, no signature.`,
     "- visual: headline, 2-4 core conclusions, exactly 3 cards; wrap key figures and names in **double asterisks**.",
@@ -1463,11 +1549,49 @@ function normVisual(v) {
   };
 }
 const normSay = (list, max = 3) => arr(list, max).map((o) => (typeof o === "string" ? { label: "", line: str(o, 1500), why: "" } : { label: str(obj(o).label, 40), line: str(obj(o).line, 1500), why: str(obj(o).why, 300) })).filter((o) => o.line);
+const normTopics = (list, max = 10) => arr(list, max).map((t) => ({ topic: str(obj(t).topic, 120), points: strArr(obj(t).points, 5, 300) })).filter((t) => t.topic);
+const normQuotes = (list, max) => arr(list, max).map((q) => ({ who: str(obj(q).who, 60), quote: str(obj(q).quote, 400).replace(/^["“”‘’']+|["“”‘’']+$/g, ""), why: str(obj(q).why, 240) })).filter((q) => q.quote);
+// What a quote has to be, as Claude is told in the live update and in the minutes.
+const QUOTE_RULE = "Each is one unbroken stretch of what the speaker said, copied exactly as the transcript has it, mishearings included: trim the ends, but do not reword, correct, translate or join separate lines, because a quote that is not in the transcript word for word is thrown away. who is the speaker's name, or vN for a voice with no name; why is one line on why it matters.";
+// A quote is only shown if it was said: its words have to be in the transcript as they stand there,
+// capitals, spaces and punctuation aside. Notes the user typed are not something anybody said. The line
+// the words are on also says whose they are, when that line has a name or a voice; where the same words
+// were said more than once, the time Claude's speaker said them is the one meant.
+const bareWords = (s) => String(s || "").toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
+function saidQuotes(m, quotes) {
+  const lines = m.segs.filter((s) => s.kind !== "note" && s.kind !== "event" && s.text);
+  let all = "";
+  const starts = lines.map((s) => { const at = all.length; all += bareWords(s.text); return at; });
+  const seen = new Set();
+  const out = [];
+  for (const q of quotes) {
+    const want = bareWords(q.quote);
+    if (want.length < 2 || seen.has(want)) continue;
+    const asked = q.who.toLowerCase();
+    let line = null;
+    for (let at = all.indexOf(want), tries = 0; at >= 0 && tries < 200; at = all.indexOf(want, at + 1), tries++) {
+      let k = starts.length - 1;
+      while (k > 0 && starts[k] > at) k--;
+      const s = lines[k];
+      const theirs = !!asked && (asked === "v" + s.v || asked === str(s.sp, 60).toLowerCase() || asked === voiceName(m, s.v).toLowerCase());
+      if (!line || theirs) line = s;
+      if (theirs) break;
+    }
+    if (!line) continue;
+    seen.add(want);
+    let who = q.who;
+    if (line.v > 0) { if (voiceName(m, line.v) || !who || /^v\d+$/i.test(who)) who = "v" + line.v; }
+    else if (line.sp && !(line.by === "ai" && (line.c || 0) < 60)) who = line.sp;
+    out.push({ ...q, who });
+  }
+  return out;
+}
 function normMeetingLive(d) {
   d = obj(d);
   return {
     title: str(d.title, 120), stage: str(d.stage, 60), situation: str(d.situation, 1200),
-    discussed: arr(d.discussed, 10).map((t) => ({ topic: str(obj(t).topic, 120), points: strArr(obj(t).points, 5, 300) })).filter((t) => t.topic),
+    discussed: normTopics(d.discussed),
+    quotes: normQuotes(d.quotes, 6),
     decisions: strArr(d.decisions, 10), open_questions: strArr(d.open_questions, 10),
     actions: arr(d.actions, 12).map((a) => (typeof a === "string" ? { task: str(a, 300), owner: "", due: "" } : { task: str(obj(a).task, 300), owner: str(obj(a).owner, 80), due: str(obj(a).due, 60) })).filter((a) => a.task),
     visual: normVisual(d.visual), say_next: normSay(d.say_next), watch_out: strArr(d.watch_out, 4),
@@ -1492,6 +1616,7 @@ function normMinutes(d) {
   return {
     title: str(d.title, 160), summary: str(d.summary, 3000), key_points: strArr(d.key_points, 20, 500), decisions: strArr(d.decisions, 20, 500),
     actions: acts(d.actions), open_questions: strArr(d.open_questions, 15, 400),
+    topics: normTopics(d.topics), quotes: normQuotes(d.quotes, 10),
     follow_up_email: { subject: str(fe.subject, 200), body: str(fe.body, 6000) },
     visual: normVisual(d.visual),
     zh_hant: z.summary || arr(z.key_points).length ? { summary: str(z.summary, 3000), key_points: strArr(z.key_points, 20, 500), decisions: strArr(z.decisions, 20, 500), actions: acts(z.actions) } : null,
@@ -1542,6 +1667,7 @@ async function runLiveUpdate(reason = "manual") {
     if (state.cur !== m) return;
     m.live = normMeetingLive(data);
     applyVoiceNames(m, data);
+    m.live.quotes = saidQuotes(m, m.live.quotes);
     m.liveAt = Date.now();
     if (!m.title && m.live.title) { m.title = m.live.title; renderCurrentBox(); }
     state.lastAnalysisAt = Date.now();
@@ -1638,6 +1764,7 @@ async function generateMinutes() {
       applyVoiceNames(m, data);
       if (state.dirtySegs) await saveSegs(m);
     }
+    m.minutes.quotes = saidQuotes(m, m.minutes.quotes);
     await saveMeeting(m);
     const added = await addActionsAsTodos(m);
     state.minutesBusy = false;
@@ -1954,9 +2081,9 @@ function renderLive() {
     h("div", { id: "sayBody" }));
   const sitCard = h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", null, "What's going on")), h("div", { id: "sitBody" }));
   const visCard = h("div", { class: "card" }, h("div", { id: "visBody" }));
-  const detail = h("div", { class: "card col-detail" }, h("div", { class: "card-head" }, h("h2", null, "So far")), h("div", { id: "detailBody" }));
-
-  v.append(bar, h("div", { class: "live-grid" }, txCard, h("div", { class: "stack col-assist" }, sayCard, sitCard, visCard), detail));
+  const quotesCard = h("div", { class: "card col-quotes" }, h("div", { class: "card-head" }, h("h2", null, "Key quotes")), h("div", { id: "quotesBody" }));
+  const mapCard = h("div", { class: "card col-detail" }, h("div", { class: "card-head" }, h("h2", null, "Mind map"), h("span", { class: "muted small-text" }, "grows with the meeting")), h("div", { id: "mapBody" }));
+  v.append(bar, h("div", { class: "live-grid" }, txCard, h("div", { class: "stack col-assist" }, sayCard, sitCard, visCard, quotesCard), mapCard));
   renderListenUI();
   renderChips();
   renderTranscriptAll();
@@ -2079,7 +2206,12 @@ function renderLivePanels() {
   renderSituation();
   const vb = $("#visBody");
   if (vb) vb.replaceChildren(renderVisual(state.cur && state.cur.live ? state.cur.live.visual : null));
-  renderDetail();
+  const m = state.cur;
+  const l = m && m.live;
+  const mb = $("#mapBody");
+  if (mb) mb.replaceChildren(mindMapEl(l ? mapOf(l.title || titleOf(m), l.discussed, l.decisions, l.open_questions, l.actions) : null));
+  const qb = $("#quotesBody");
+  if (qb) qb.replaceChildren(quotesEl(m, l ? l.quotes : null, "What's worth keeping word for word shows up here, with who said it and why it matters."));
 }
 function renderSay() {
   const body = $("#sayBody");
@@ -2127,18 +2259,6 @@ function listBlock(title, items) {
   if (!items || !items.length) return null;
   return h("div", null, h("h3", { class: "sub" }, title), h("ul", { class: "plain-list" }, items.map((x) => h("li", { html: inline(x) }))));
 }
-function renderDetail() {
-  const c = $("#detailBody");
-  if (!c) return;
-  c.replaceChildren();
-  const l = state.cur && state.cur.live;
-  if (!l) { c.append(h("p", { class: "empty" }, "Topics, decisions, open questions and action items build up here.")); return; }
-  if (l.discussed.length) c.append(h("div", null, h("h3", { class: "sub", style: "margin-top:0" }, "Discussed"), h("div", { class: "topics" }, l.discussed.map((t) => h("div", { class: "topic" }, h("h3", null, t.topic), t.points.length ? h("ul", { class: "plain-list" }, t.points.map((p) => h("li", { html: inline(p) }))) : null)))));
-  const blocks = [listBlock("Decisions", l.decisions), listBlock("Open questions", l.open_questions)];
-  if (l.actions.length) blocks.push(h("div", null, h("h3", { class: "sub" }, "Action items"), h("ul", { class: "plain-list" }, l.actions.map((a) => h("li", null, a.task, a.owner ? h("span", { class: "muted" }, " · " + a.owner) : null, a.due ? h("span", { class: "muted" }, " · " + a.due) : null)))));
-  c.append(...blocks.filter(Boolean));
-  if (!c.childNodes.length) c.append(h("p", { class: "empty" }, "Nothing concrete yet."));
-}
 async function endMeeting() {
   const m = state.cur;
   if (!m) return;
@@ -2161,6 +2281,8 @@ function minutesMarkdown(m) {
   list("Key points", n.key_points); list("Decisions", n.decisions);
   if (n.actions.length) lines.push("## Action items", "", "| Task | Owner | Due |", "|---|---|---|", ...n.actions.map((a) => `| ${a.task.replace(/\|/g, "/")} | ${a.owner} | ${a.due} |`), "");
   list("Open questions", n.open_questions);
+  if (arr(n.topics).length) lines.push("## What was discussed", "", ...n.topics.flatMap((t) => [`- ${t.topic}`, ...t.points.map((x) => `  - ${x}`)]), "");
+  if (arr(n.quotes).length) lines.push("## Highlights", "", ...n.quotes.map((q) => { const who = quoteWho(m, q.who); return `- “${q.quote}”${who ? ` (${who})` : ""}${q.why ? `: ${q.why}` : ""}`; }), "");
   if (n.follow_up_email.body) lines.push("## Follow-up email", "", `**Subject:** ${n.follow_up_email.subject}`, "", n.follow_up_email.body, "");
   if (n.zh_hant) {
     lines.push("## 繁體中文", "");
@@ -2386,6 +2508,8 @@ function renderAfter() {
     v.append(h("div", { class: "after-grid" },
       h("div", { class: "card span-2" }, h("h2", { style: "font-size:16px;margin-bottom:8px" }, "Summary"), h("p", { style: "margin:0;font-size:16px" }, n.summary)),
       h("div", { class: "card span-2" }, renderVisual(n.visual)),
+      h("div", { class: "card span-2" }, h("div", { class: "card-head" }, h("h2", null, "Mind map")), mindMapEl(mapOfMinutes(m), "Nothing to draw yet.")),
+      arr(n.quotes).length ? h("div", { class: "card span-2" }, h("div", { class: "card-head" }, h("h2", null, "Highlights"), h("span", { class: "muted small-text" }, "in their own words")), quotesEl(m, n.quotes, "")) : null,
       h("div", { class: "card stack" }, listBlock("Key points", n.key_points) || h("p", { class: "empty" }, "No key points.")),
       h("div", { class: "card stack" }, listBlock("Decisions", n.decisions) || h("p", { class: "empty" }, "No decisions recorded."), listBlock("Open questions", n.open_questions)),
       h("div", { class: "card span-2" }, h("div", { class: "card-head" }, h("h2", null, "Action items"), h("span", { class: "muted small-text" }, "Also in Follow-ups")), h("div", { id: "actionsTable" })),

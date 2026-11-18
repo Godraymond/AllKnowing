@@ -1704,8 +1704,8 @@ function stitch(parts) {
    (about 1.8 GB, each download checked against the SHA-256 written in speech.cjs), checking that they
    work on this Mac, and running a recording through them.
 
-   It is slower than Soniox: a recording takes roughly half its own length on a recent computer, and
-   the Mac measures its own speed so the page can say how long. Soniox stays available for recordings
+   It is slower than Soniox: where it was tried, an hour of recording took about 40 minutes, and the
+   Mac measures its own speed so the page can say how long. Soniox stays available for recordings
    when a speech key is saved, as the faster, paid way; live listening still needs it. */
 const SPEECH = path.join(HOME, "speech");
 const SPEECH_FILE = path.join(__dirname, "speech.cjs");

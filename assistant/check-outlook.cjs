@@ -82,7 +82,7 @@ ok(
 const unfolded = ics.replace(/\r\n /g, "").split("\r\n");
 const field = (name) =>
 	(unfolded.find((l) => l.startsWith(`${name}:`)) || "").slice(name.length + 1);
-const unescape = (s) => s.replace(/\\([\\;,nN])/g, (_, c) => (c === "n" || c === "N" ? "\n" : c));
+const icsUnescape = (s) => s.replace(/\\([\\;,nN])/g, (_, c) => (c === "n" || c === "N" ? "\n" : c));
 ok(
 	"one event, in a calendar",
 	unfolded[0] === "BEGIN:VCALENDAR" &&
@@ -98,13 +98,13 @@ ok(
 );
 ok(
 	"the title comes back as it was, comma included",
-	unescape(field("SUMMARY")) === title,
+	icsUnescape(field("SUMMARY")) === title,
 	field("SUMMARY"),
 );
 ok(
 	"the notes come back as they were: commas, semicolons, new lines, Chinese, emoji and the backslash",
-	unescape(field("DESCRIPTION")) === notes,
-	JSON.stringify(unescape(field("DESCRIPTION"))),
+	icsUnescape(field("DESCRIPTION")) === notes,
+	JSON.stringify(icsUnescape(field("DESCRIPTION"))),
 );
 ok(
 	"busy blocks the time",

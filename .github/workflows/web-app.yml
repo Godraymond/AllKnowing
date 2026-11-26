@@ -44,6 +44,9 @@ jobs:
       - name: Check key quotes are held to the transcript
         run: node assistant/check-quotes.cjs
 
+      - name: Check the way round Outlook's refusal (calendar file, Outlook on the web)
+        run: node assistant/check-outlook.cjs
+
       - name: Check the Mac mini's server
         run: node assistant/check-hub.cjs
 

@@ -110,6 +110,10 @@ main { padding: 20px; max-width: 1480px; margin: 0 auto; }
 .md ul, .md ol { margin: 0 0 8px; padding-left: 20px; display: grid; gap: 3px; }
 .md h4 { font-family: var(--font-body); font-size: 14px; margin: 8px 0 4px; }
 .status-line { font-size: 13px; color: var(--muted); min-height: 1.4em; }
+.refused { margin: 0; padding: 10px 12px; border-radius: 9px; background: color-mix(in srgb, var(--accent) 7%, var(--surface)); border: 1px solid var(--line); font-size: 14px; }
+.fix { font-size: 13.5px; color: var(--muted); }
+.fix summary { cursor: pointer; font-weight: 600; color: var(--ink); }
+.fix ol { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 4px; }
 .status-line.bad { color: var(--bad); }
 .status-line.ok { color: var(--good); }
 .status-line.busy::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 6px; animation: pulse 1.2s ease-in-out infinite; }
@@ -1330,6 +1334,13 @@ function attendeesText(ev) {
     return [name, email ? `<${email}>` : ""].filter(Boolean).join(" ");
   }).filter(Boolean).join(", ");
 }
+// What Outlook said, without the JSON and the debugging details the connector wraps around it.
+function outlookSaid(e) {
+  let said = String((e && e.message) || "unknown error");
+  try { const j = JSON.parse(said); if (j && typeof j.message === "string") said = j.message; } catch { /* not JSON: as it is */ }
+  said = said.split(/\s+caused by:|\n\s*Debug Context/i)[0].trim();
+  return said.length > 320 ? `${said.slice(0, 320).trim()}…` : said;
+}
 function mcpErrorText(e) {
   switch (e && e.code) {
     case "needs_reauth": return "Reconnect Microsoft 365 in claude.ai Settings → Connectors, then try again.";
@@ -1338,7 +1349,7 @@ function mcpErrorText(e) {
     case "approval_required": case "consent_required": return "This needs your approval. Try again and choose Allow when asked.";
     case "not_in_manifest": return "Outlook is switched off for AllKnowing. Turn it on in this page's Permissions menu.";
     case "blocked_by_policy": return "Your organisation's settings block this Outlook action.";
-    case "tool_error": return "Outlook said no: " + (e.message || "unknown error");
+    case "tool_error": return "Outlook said no: " + outlookSaid(e);
     case "server_unavailable": case "upstream_error": return "Outlook didn't answer. Check Outlook before trying again, in case it went through.";
     case "not_granted": case "capability_disabled": case "capability_removed": return "Outlook isn't available in this view. Open AllKnowing in claude.ai.";
     default: return "Something went wrong talking to Outlook" + (e && e.message ? `: ${e.message}` : ".");
@@ -2293,10 +2304,11 @@ function minutesMarkdown(m) {
   return lines.join("\n");
 }
 const transcriptText = (m) => m.segs.map((s) => (s.kind === "event" ? `— ${s.text} —` : `[${fmtClock(s.t)}] ${s.kind === "note" ? "(note) " : s.sp ? s.sp + ": " : s.v > 0 ? `Voice ${voiceOrd(s.v)}: ` : ""}${s.text}`)).join("\n");
+// True when the file went out (not when it was copied instead, or the save was cancelled).
 async function saveFile(filename, data) {
-  if (!cap.downloads) { await copy(data); toast("Downloads aren't available here, so it was copied to your clipboard instead.", "warn", 6000); return; }
-  try { await cap.downloads.save({ filename, data }); }
-  catch (e) { const code = e && e.code; if (code && !/cancel|declin|dismiss/.test(code)) toast(`Couldn't save the file (${code}).`, "bad"); }
+  if (!cap.downloads) { await copy(data); toast("Downloads aren't available here, so it was copied to your clipboard instead.", "warn", 6000); return false; }
+  try { await cap.downloads.save({ filename, data }); return true; }
+  catch (e) { const code = e && e.code; if (code && !/cancel|declin|dismiss/.test(code)) toast(`Couldn't save the file (${code}).`, "bad"); return false; }
 }
 /* A recording on its way to being text. The Mac mini does the work; this asks how it's going, and when
    the text is ready takes it, saves it as the meeting's transcript, and writes the minutes if asked. Any
@@ -2514,7 +2526,7 @@ function renderAfter() {
       h("div", { class: "card stack" }, listBlock("Decisions", n.decisions) || h("p", { class: "empty" }, "No decisions recorded."), listBlock("Open questions", n.open_questions)),
       h("div", { class: "card span-2" }, h("div", { class: "card-head" }, h("h2", null, "Action items"), h("span", { class: "muted small-text" }, "Also in Follow-ups")), h("div", { id: "actionsTable" })),
       email.body ? h("div", { class: "card span-2 stack" },
-        h("div", { class: "card-head" }, h("h2", null, "Follow-up email"), h("div", { class: "row" }, copyBtn(`${email.subject}\n\n${email.body}`), cap.mcp ? h("button", { type: "button", class: "btn small", onclick: () => openEmailModal(m) }, "Draft it in Outlook") : null)),
+        h("div", { class: "card-head" }, h("h2", null, "Follow-up email"), h("div", { class: "row" }, copyBtn(`${email.subject}\n\n${email.body}`), h("button", { type: "button", class: "btn small", onclick: () => openEmailModal(m) }, cap.mcp ? "Draft it in Outlook" : "Email it"))),
         h("strong", null, email.subject), h("pre", { class: "email" }, email.body)) : null,
       n.zh_hant ? h("details", { class: "card span-2" }, h("summary", null, "繁體中文版本"),
         h("div", { class: "stack", style: "margin-top:10px" }, n.zh_hant.summary ? h("p", null, n.zh_hant.summary) : null, listBlock("重點", n.zh_hant.key_points), listBlock("決定", n.zh_hant.decisions),
@@ -2552,7 +2564,7 @@ function renderActionsTable() {
         h("td", null, a.task, a.priority === "high" ? h("span", { class: "prio" }, "High") : null),
         h("td", null, a.owner),
         h("td", { class: "muted" }, a.due),
-        h("td", null, t && t.eventLink ? h("a", { href: t.eventLink, target: "_blank", rel: "noopener" }, "In Outlook") : cap.mcp ? h("button", { type: "button", class: "btn small", onclick: async () => { const td = t || (await createTodoFromAction(m, a)); openCalendarModal(td); } }, "Add") : h("span", { class: "muted" }, "—")));
+        h("td", null, t && t.eventLink ? h("a", { href: t.eventLink, target: "_blank", rel: "noopener" }, "In Outlook") : h("button", { type: "button", class: "btn small", onclick: async () => { const td = t || (await createTodoFromAction(m, a)); openCalendarModal(td); } }, "Add")));
     }))));
 }
 async function createTodoFromAction(m, a) {
@@ -2573,8 +2585,61 @@ async function addActionsAsTodos(m) {
 function textToHtml(s) {
   return String(s || "").split(/\n{2,}/).map((p) => `<p>${esc(p).replace(/\n/g, "<br>")}</p>`).join("");
 }
+/* ---------- Outlook, and the way round it when Outlook says no ---------- */
+// Claude's Microsoft 365 connector can be allowed to read the calendar and mail but not to change them:
+// that needs a Microsoft 365 admin to approve its write permissions (Calendars.ReadWrite for events,
+// Mail.ReadWrite for drafts). Until then Outlook answers "Missing scope". The page then offers what needs
+// no permission: the event or email opened in Outlook on the web with everything filled in, a calendar
+// file, or the email app. A refusal is remembered until the page is reloaded, so the next try goes
+// straight to those; once the admin has said yes, a reload tries Outlook again. The web app has no
+// Outlook connector, so there these are the only ways.
+const noWrite = { calendar: false, mail: false };
+const writeRefused = (e) => /Missing scope|ErrorAccessDenied|FORBIDDEN|Access is denied/i.test(String((e && e.message) || ""));
+const onPhone = () => !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+const OUTLOOK_WEB = "https://outlook.office.com";
+// Past this length a link may be turned away on its way, so an email's message goes by the clipboard.
+const LINK_ROOM = 6000;
+const query = (o) => Object.entries(o).filter(([, v]) => v !== "" && v != null).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+const outlookEventLink = (ev) => `${OUTLOOK_WEB}/calendar/0/action/compose?${query({ allday: "false", body: ev.notes.slice(0, 1500), enddt: ev.end.toISOString(), path: "/calendar/action/compose", rru: "addevent", startdt: ev.start.toISOString(), subject: ev.title })}`;
+// A calendar file (RFC 5545): times in UTC, text escaped, lines folded at 75 bytes.
+const icsTime = (d) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
+const icsText = (s) => String(s || "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+function icsFold(line) {
+  const enc = new TextEncoder();
+  const parts = [];
+  let cur = "", used = 0, room = 75;
+  for (const ch of line) {
+    const n = enc.encode(ch).length;
+    if (used + n > room) { parts.push(cur); cur = ""; used = 0; room = 74; }
+    cur += ch;
+    used += n;
+  }
+  parts.push(cur);
+  return parts.join("\r\n ");
+}
+function icsFile(ev) {
+  return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//AllKnowing//Meeting assistant//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+    "BEGIN:VEVENT", `UID:${uid()}@allknowing`, `DTSTAMP:${icsTime(new Date())}`, `DTSTART:${icsTime(ev.start)}`, `DTEND:${icsTime(ev.end)}`,
+    `SUMMARY:${icsText(ev.title)}`, ev.notes ? `DESCRIPTION:${icsText(ev.notes)}` : "",
+    `TRANSP:${ev.busy ? "OPAQUE" : "TRANSPARENT"}`, `X-MICROSOFT-CDO-BUSYSTATUS:${ev.busy ? "BUSY" : "FREE"}`,
+    "END:VEVENT", "END:VCALENDAR"].filter(Boolean).map(icsFold).join("\r\n") + "\r\n";
+}
+const refusedNote = (what) => h("p", { class: "refused" }, `Outlook won't let AllKnowing ${what} yet: Claude's Microsoft 365 connector is only allowed to read. Use a button below instead, or see how to fix it.`);
+function writeFixEl() {
+  return h("details", { class: "fix" }, h("summary", null, "How to fix it"),
+    h("ol", null,
+      h("li", null, "A Global Administrator of your Microsoft 365 approves Claude's added permissions once: in claude.ai, Customize → Connectors → Microsoft 365, connect with the admin account and tick “Consent on behalf of your organization”."),
+      h("li", null, "On a Claude Team or Enterprise plan, an owner also allows the Outlook tools: Organization settings → Connectors → Microsoft 365."),
+      h("li", null, "Reload this page and try again. Still no? Disconnect Microsoft 365 in Customize → Connectors and connect it again.")));
+}
+// The buttons that need no permission, the one that suits this device last (it's the main one).
+function showWays(md, cancel, forComputer, forPhone) {
+  const phone = onPhone();
+  (phone ? forPhone : forComputer).classList.add("primary");
+  md.box.querySelector(".modal-actions").replaceChildren(cancel, phone ? forComputer : forPhone, phone ? forPhone : forComputer);
+}
+
 function openEmailModal(m) {
-  if (!cap.mcp) return;
   const n = m.minutes;
   const to = h("input", { class: "inp", value: emailsIn(m.prep.attendees).join(", "), placeholder: "name@company.com, …" });
   const subject = h("input", { class: "inp", value: n.follow_up_email.subject || `Follow-up: ${titleOf(m)}` });
@@ -2582,13 +2647,39 @@ function openEmailModal(m) {
   const bodyText = (n.follow_up_email.body || "") + (n.follow_up_email.body && /next steps|action/i.test(n.follow_up_email.body) ? "" : actionsText);
   const body = h("textarea", { class: "inp", rows: "10" }, bodyText);
   const status = h("p", { class: "status-line" });
+  const viaOutlook = !!cap.mcp && !noWrite.mail;
+  const why = h("div", { class: "stack", style: "gap:8px" },
+    viaOutlook ? h("p", { class: "muted small-text", style: "margin:0" }, "This saves a draft in your Outlook Drafts folder. Nothing is sent. Review it and send from Outlook.")
+      : cap.mcp ? [refusedNote("save drafts in Outlook"), writeFixEl()]
+      : h("p", { class: "muted small-text", style: "margin:0" }, "Opens a new email with this filled in, in Outlook on the web or your email app. Nothing is sent until you send it."));
   const createBtn = h("button", { type: "button", class: "btn primary" }, "Create draft");
-  const md2 = modal("Draft the follow-up in Outlook", h("div", { class: "form" },
+  const cancel = h("button", { type: "button", class: "btn", onclick: () => md2.close() }, "Cancel");
+  const md2 = modal(viaOutlook ? "Draft the follow-up in Outlook" : "The follow-up email", h("div", { class: "form" },
     h("div", { class: "field" }, h("span", { class: "label" }, "To"), to),
     h("div", { class: "field" }, h("span", { class: "label" }, "Subject"), subject),
     h("div", { class: "field" }, h("span", { class: "label" }, "Message"), body),
-    h("p", { class: "muted small-text", style: "margin:0" }, "This saves a draft in your Outlook Drafts folder. Nothing is sent. Review it and send from Outlook."),
-    status), [h("button", { type: "button", class: "btn", onclick: () => md2.close() }, "Cancel"), createBtn]);
+    why, status), [cancel, createBtn]);
+  // The email handed over in a link: Outlook on the web, or the email app. The message goes in the link
+  // unless that makes it too long; then it goes by the clipboard, to be pasted in.
+  const handOver = (web) => (e) => {
+    const list = emailsIn(to.value), subj = subject.value.trim(), text = body.value;
+    const link = (b) => (web ? `${OUTLOOK_WEB}/mail/deeplink/compose?${query({ to: list.join(","), subject: subj, body: b })}` : `mailto:${list.join(",")}?${query({ subject: subj, body: b })}`);
+    let href = link(text);
+    let said = web ? "Outlook on the web opens with the email filled in." : "Your email app opens with the email filled in.";
+    if (href.length > LINK_ROOM) {
+      href = link("");
+      said = "The message is too long to pass along, so it's copied: paste it into the email.";
+      let copying;
+      try { copying = navigator.clipboard.writeText(text); } catch (err) { copying = Promise.reject(err); }
+      copying.catch(() => toast("Couldn't copy the message. Use Copy next to the email on the minutes page.", "warn", 8000));
+    }
+    e.currentTarget.href = href;
+    setTimeout(() => md2.close(), 0);
+    toast(said, "good", 8000);
+  };
+  const webBtn = h("a", { class: "btn", href: "#", target: "_blank", rel: "noopener", onclick: handOver(true) }, "Open in Outlook");
+  const appBtn = h("a", { class: "btn", href: "#", onclick: handOver(false) }, "Email app");
+  if (!viaOutlook) showWays(md2, cancel, webBtn, appBtn);
   createBtn.addEventListener("click", async () => {
     const list = emailsIn(to.value);
     createBtn.disabled = true;
@@ -2605,6 +2696,14 @@ function openEmailModal(m) {
         const md3 = modal("Draft saved", h("p", null, "Your draft is in Outlook Drafts. ", h("a", { href: link, target: "_blank", rel: "noopener" }, "Open it in Outlook")), [h("button", { type: "button", class: "btn", onclick: () => md3.close() }, "Done")]);
       } else toast("Draft saved in your Outlook Drafts folder.", "good", 6000);
     } catch (e) {
+      if (writeRefused(e)) {
+        noWrite.mail = true;
+        status.className = "status-line";
+        status.textContent = "";
+        why.replaceChildren(refusedNote("save drafts in Outlook"), writeFixEl());
+        showWays(md2, cancel, webBtn, appBtn);
+        return;
+      }
       status.className = "status-line bad";
       status.textContent = mcpErrorText(e);
       createBtn.disabled = false;
@@ -2631,7 +2730,7 @@ function todoRow(t, compact = false) {
         t.meetingTitle ? h("button", { type: "button", class: "btn small ghost", style: "padding:0 4px", onclick: () => t.meetingId && openMeeting(t.meetingId, "after") }, t.meetingTitle) : null,
         t.eventLink ? h("a", { href: t.eventLink, target: "_blank", rel: "noopener" }, "In Outlook" + (t.eventAt ? ` · ${t.eventAt}` : "")) : null)),
     h("div", { class: "row" },
-      !t.eventLink && !t.done && cap.mcp ? h("button", { type: "button", class: "btn small", onclick: () => openCalendarModal(t) }, "Add to calendar") : null,
+      !t.eventLink && !t.done ? h("button", { type: "button", class: "btn small", onclick: () => openCalendarModal(t) }, "Add to calendar") : null,
       compact ? null : h("button", { type: "button", class: "btn small ghost", "aria-label": "Delete follow-up", onclick: () => { removeTodo(t.id); toast("Deleted."); } }, "Delete")));
 }
 function renderTodos() {
@@ -2665,7 +2764,6 @@ function renderTodos() {
   v.append(card);
 }
 function openCalendarModal(t) {
-  if (!cap.mcp) { toast("Outlook isn't available here. Open AllKnowing in claude.ai with the Microsoft 365 connector added.", "warn", 7000); return; }
   const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone) || "UTC";
   const defaultDate = /^\d{4}-\d{2}-\d{2}$/.test(t.due || "") && t.due >= localISODate() ? t.due : localISODate(addDays(new Date(), 1));
   const title = h("input", { class: "inp", value: `Follow up: ${t.task}`.slice(0, 250) });
@@ -2676,30 +2774,58 @@ function openCalendarModal(t) {
   const notes = h("textarea", { class: "inp", rows: "4" }, [t.task, t.owner ? `Owner: ${t.owner}` : "", t.meetingTitle ? `From: ${t.meetingTitle}` : ""].filter(Boolean).join("\n"));
   const busy = h("input", { type: "checkbox", checked: true });
   const status = h("p", { class: "status-line" });
+  const viaOutlook = !!cap.mcp && !noWrite.calendar;
+  const why = h("div", { class: "stack", style: "gap:8px" },
+    viaOutlook ? null
+      : cap.mcp ? [refusedNote("add events to your calendar"), writeFixEl()]
+      : h("p", { class: "muted small-text", style: "margin:0" }, "Opens the event in Outlook on the web with everything filled in, for you to save. Or save a calendar file, which your phone's calendar or any calendar app can add."));
   const addBtn = h("button", { type: "button", class: "btn primary" }, "Add to Outlook");
-  const md2 = modal("Add to your Outlook calendar", h("div", { class: "form" },
+  const cancel = h("button", { type: "button", class: "btn", onclick: () => md2.close() }, "Cancel");
+  const md2 = modal(cap.mcp ? "Add to your Outlook calendar" : "Add to your calendar", h("div", { class: "form" },
     h("div", { class: "field" }, h("span", { class: "label" }, "Title"), title),
     h("div", { class: "three" }, h("div", { class: "field" }, h("span", { class: "label" }, "Date"), date), h("div", { class: "field" }, h("span", { class: "label" }, "Time"), time), h("div", { class: "field" }, h("span", { class: "label" }, "Length"), length)),
     h("div", { class: "field" }, h("span", { class: "label" }, "Notes"), notes),
     h("label", { class: "check" }, busy, "Block the time (show as busy)"),
     h("p", { class: "muted small-text", style: "margin:0" }, `Only you. No invitations are sent. Time zone: ${tz}.`),
-    status), [h("button", { type: "button", class: "btn", onclick: () => md2.close() }, "Cancel"), addBtn]);
-  addBtn.addEventListener("click", async () => {
-    if (!date.value || !time.value) { status.className = "status-line bad"; status.textContent = "Pick a date and time."; return; }
+    why, status), [cancel, addBtn]);
+  // The event as the form has it, or nothing (with a word why) when the date or time won't do.
+  const eventNow = () => {
+    if (!date.value || !time.value) { status.className = "status-line bad"; status.textContent = "Pick a date and time."; return null; }
     const start = new Date(`${date.value}T${time.value}:00`);
-    if (isNaN(start)) { status.className = "status-line bad"; status.textContent = "That date or time doesn't look right."; return; }
-    const end = new Date(start.getTime() + Number(length.value) * 60000);
+    if (isNaN(start)) { status.className = "status-line bad"; status.textContent = "That date or time doesn't look right."; return null; }
+    return { title: title.value.trim().slice(0, 255) || "Follow up", start, end: new Date(start.getTime() + Number(length.value) * 60000), notes: notes.value, busy: busy.checked };
+  };
+  const webBtn = h("a", { class: "btn", href: "#", target: "_blank", rel: "noopener" }, "Open in Outlook");
+  webBtn.addEventListener("click", (e) => {
+    const ev = eventNow();
+    if (!ev) { e.preventDefault(); return; }
+    webBtn.href = outlookEventLink(ev);
+    setTimeout(() => md2.close(), 0);
+    toast("Outlook on the web opens with the event filled in. Press Save there.", "good", 8000);
+  });
+  const fileBtn = h("button", { type: "button", class: "btn" }, "Calendar file");
+  fileBtn.addEventListener("click", async () => {
+    const ev = eventNow();
+    if (!ev) return;
+    if (!(await saveFile(`${safeName(ev.title)}.ics`, icsFile(ev)))) return;
+    md2.close();
+    toast("Calendar file saved. Open it and your calendar adds the event.", "good", 8000);
+  });
+  if (!viaOutlook) showWays(md2, cancel, webBtn, fileBtn);
+  addBtn.addEventListener("click", async () => {
+    const ev = eventNow();
+    if (!ev) return;
     addBtn.disabled = true;
     status.className = "status-line busy";
     status.textContent = "Adding to Outlook…";
     try {
       const res = await cap.mcp.callTool(SERVER, "outlook_create_event", {
-        subject: title.value.trim().slice(0, 255) || "Follow up",
-        start: { dateTime: localISODateTime(start), timeZone: tz },
-        end: { dateTime: localISODateTime(end), timeZone: tz },
-        body: notes.value,
+        subject: ev.title,
+        start: { dateTime: localISODateTime(ev.start), timeZone: tz },
+        end: { dateTime: localISODateTime(ev.end), timeZone: tz },
+        body: ev.notes,
         bodyType: "text",
-        showAs: busy.checked ? "busy" : "free",
+        showAs: ev.busy ? "busy" : "free",
       });
       const p = obj(res && res.payload);
       const link = p.webLink || obj(p.event).webLink || "";
@@ -2710,6 +2836,14 @@ function openCalendarModal(t) {
       if (state.route === "after") renderActionsTable();
       if (state.route === "todos") renderTodos();
     } catch (e) {
+      if (writeRefused(e)) {
+        noWrite.calendar = true;
+        status.className = "status-line";
+        status.textContent = "";
+        why.replaceChildren(refusedNote("add events to your calendar"), writeFixEl());
+        showWays(md2, cancel, webBtn, fileBtn);
+        return;
+      }
       status.className = "status-line bad";
       status.textContent = mcpErrorText(e);
       addBtn.disabled = false;

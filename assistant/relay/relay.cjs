@@ -21,7 +21,7 @@ const VERSION = "1.0";
 const DIR = process.env.AK_RELAY_DIR || __dirname;
 const WORK = path.join(DIR, "work");
 const DEFAULT_SYSTEM =
-	"You are Claude, answering inside AllKnowing, a meeting and 狼人杀 (Werewolf) assistant. Do exactly what the user's message asks, in the format it asks for.";
+	"You are Claude, answering inside AllKnowing, a meeting assistant. Do exactly what the user's message asks, in the format it asks for.";
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 
 function loadConfig() {
@@ -662,3 +662,6 @@ server.on("error", (e) => {
 	console.error(e.code === "EADDRINUSE" ? `Port ${cfg.port} is already in use on this Mac.` : e);
 	process.exit(1);
 });
+// Started by the Mac mini's server (hub.cjs), the relay goes when the server goes, however suddenly, so
+// it never sits on its port with a code nobody has any more.
+if (process.send) process.on("disconnect", () => process.exit(0));

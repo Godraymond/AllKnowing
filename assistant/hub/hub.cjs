@@ -34,11 +34,11 @@ const { spawn, spawnSync } = require("node:child_process");
 const { Readable } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
 
-const VERSION = "1.2.1";
+const VERSION = "1.3";
 // What the page may expect from this hub. A page that needs more waits for the hub to be updated.
 // 2: recordings turned into text (/api/transcribe).
 // 3: recordings turned into text on this Mac, by free speech models (status.local, engine).
-const HUB_API = 3;
+const HUB_API = 4;
 const HOME = process.env.AK_HUB_HOME || path.join(os.homedir(), "AllKnowing");
 const CONFIG = path.join(HOME, "config.json");
 const NOTES = path.join(HOME, "notes");
@@ -85,6 +85,12 @@ function loadConfig() {
 		host: process.env.AK_HUB_BIND || (typeof c.host === "string" && c.host) || "0.0.0.0",
 		code: typeof c.code === "string" && plain(c.code).length >= 8 ? c.code : "",
 		claudeKey: typeof c.claudeKey === "string" ? c.claudeKey : "",
+		// How the hub asks Claude: "plan" (Claude Code on this Mac, signed in with the owner's Claude
+		// plan, nothing extra to pay) or "key" (the API key above). A key saved before this existed keeps "key".
+		claudeVia:
+			c.claudeVia === "plan" || c.claudeVia === "key" ? c.claudeVia : c.claudeKey ? "key" : "plan",
+		// Where Claude Code is, as the installer found it (launchd's PATH is short).
+		claudePath: typeof c.claudePath === "string" ? c.claudePath : "",
 		speechKey: typeof c.speechKey === "string" ? c.speechKey : "",
 		// Whether Soniox takes more than an hour of audio in one file: found out with the first long
 		// recording, and kept (see "recordings" below). null until then.
@@ -447,8 +453,220 @@ function notFound(res) {
 	sendJson(res, 404, { error: { type: "not_found", message: "Nothing here." } });
 }
 
+/* ---------- Claude through the owner's Claude plan: Claude Code on this Mac ----------
+   The owner wanted no API key, only the subscription. So besides a key kept here, the hub can answer
+   Claude requests through Claude Code signed in with the owner's plan. It runs relay.cjs (the relay the
+   web app can also use on its own; it sits next to this file) as a child on 127.0.0.1, with a code of
+   its own, and passes requests to it. The relay runs `claude -p` once per request with no tools, and
+   answers in the Messages API's own shape, so the page can't tell the two ways apart. */
+// Next to this file once installed; in the repository it's assistant/relay/relay.cjs.
+const RELAY_FILE =
+	process.env.AK_HUB_RELAY_FILE ||
+	[path.join(__dirname, "relay.cjs"), path.join(__dirname, "..", "relay", "relay.cjs")].find((f) =>
+		fs.existsSync(f),
+	) ||
+	path.join(__dirname, "relay.cjs");
+const RELAY_PORT = Number(process.env.AK_HUB_RELAY_PORT) || 47824;
+const relay = {
+	child: null,
+	code: crypto.randomBytes(18).toString("hex"),
+	stopping: false,
+	restarts: 0,
+	plan: null,
+	checkedAt: 0,
+	checking: null,
+	// The Claude Code the relay was started with.
+	claude: "",
+};
+const claudeVia = () => (cfg.claudeVia === "key" ? "key" : "plan");
+function claudeCode() {
+	// Set by the checks, and then used as it is, found or not.
+	if (process.env.AK_HUB_CLAUDE) return process.env.AK_HUB_CLAUDE;
+	const tries = [
+		cfg.claudePath,
+		path.join(os.homedir(), ".local", "bin", "claude"),
+		path.join(os.homedir(), ".claude", "local", "claude"),
+		"/opt/homebrew/bin/claude",
+		"/usr/local/bin/claude",
+	].filter(Boolean);
+	for (const f of tries) {
+		try {
+			fs.accessSync(f, fs.constants.X_OK);
+			return f;
+		} catch {
+			/* not this one */
+		}
+	}
+	return "claude";
+}
+function startRelay() {
+	if (relay.child || relay.stopping) return;
+	if (!fs.existsSync(RELAY_FILE)) {
+		log("relay.cjs isn't next to the server, so Claude through your plan is off until the next update.");
+		return;
+	}
+	relay.claude = claudeCode();
+	const child = spawn(process.execPath, [RELAY_FILE], {
+		env: {
+			...process.env,
+			AK_RELAY_DIR: path.join(HOME, "relay"),
+			AK_RELAY_PORT: String(RELAY_PORT),
+			AK_RELAY_CODE: relay.code,
+			AK_RELAY_CLAUDE: relay.claude,
+			AK_RELAY_KEEP_AWAKE: "0",
+			AK_RELAY_ORIGINS: "http://127.0.0.1",
+		},
+		// The channel closes when this server goes, even when it's killed outright, and the relay then goes too.
+		stdio: ["ignore", "pipe", "pipe", "ipc"],
+	});
+	relay.child = child;
+	const say = (buf) => {
+		for (const line of String(buf).split("\n"))
+			if (line.trim()) log(`claude code: ${line.replace(/^\S+Z\s+/, "").slice(0, 300)}`);
+	};
+	child.stdout.on("data", say);
+	child.stderr.on("data", say);
+	child.on("error", (e) => log("Couldn't start the link to Claude Code:", e.message));
+	child.on("exit", (code) => {
+		if (relay.child === child) relay.child = null;
+		relay.plan = null;
+		relay.checkedAt = 0;
+		if (relay.stopping) return;
+		relay.restarts++;
+		const wait = Math.min(60000, 1000 * 2 ** Math.min(relay.restarts, 6));
+		log(`The link to Claude Code stopped (${code}); starting it again in ${Math.round(wait / 1000)} s.`);
+		setTimeout(startRelay, wait).unref();
+	});
+}
+function stopRelay() {
+	relay.stopping = true;
+	if (relay.child) {
+		try {
+			relay.child.kill();
+		} catch {
+			/* gone */
+		}
+	}
+}
+// After an update of relay.cjs: the link starts again from the new file (it may not have run at all yet).
+function restartRelay() {
+	relay.restarts = 0;
+	if (relay.child) relay.child.kill();
+	else startRelay();
+}
+// Whether Claude Code is there and signed in, as the relay finds it. Asked at most once a minute, or
+// every few seconds while something is missing (the relay may be starting, or the owner signing in).
+function planStatus(force) {
+	const fresh = relay.plan && relay.plan.running && relay.plan.found && relay.plan.loggedIn ? 60000 : 5000;
+	if (!force && relay.checkedAt && Date.now() - relay.checkedAt < fresh) return Promise.resolve(relay.plan);
+	if (relay.checking) return relay.checking;
+	relay.checking = (async () => {
+		let plan;
+		try {
+			const res = await fetch(`http://127.0.0.1:${RELAY_PORT}/health`, {
+				headers: { "x-api-key": relay.code },
+				signal: AbortSignal.timeout(30000),
+			});
+			const c = ((await res.json()) || {}).claude || {};
+			plan = {
+				running: res.ok,
+				found: !!c.found,
+				loggedIn: !!c.loggedIn,
+				authMethod: String(c.authMethod || "").slice(0, 60),
+				version: String(c.version || "").replace(/\s*\(Claude Code\)\s*$/i, "").slice(0, 60),
+			};
+		} catch {
+			plan = { running: false, found: false, loggedIn: false, authMethod: "", version: "" };
+		}
+		relay.plan = plan;
+		relay.checkedAt = Date.now();
+		relay.checking = null;
+		// Claude Code installed since the link started (the installer puts it in ~/.local/bin): use it.
+		if (plan.running && !plan.found && claudeCode() !== relay.claude) {
+			log(`Found Claude Code at ${claudeCode()}; starting the link to it again.`);
+			restartRelay();
+		}
+		return plan;
+	})();
+	return relay.checking;
+}
+const planReady = () => !!relay.plan && relay.plan.running && relay.plan.found && relay.plan.loggedIn;
+async function planMessages(req, res) {
+	// What's known to be missing is said straight away, rather than after Claude Code fails.
+	let plan = await planStatus();
+	if (!plan || !plan.running) plan = await planStatus(true);
+	if (!plan.running)
+		return sendJson(
+			res,
+			503,
+			hubError(
+				"api_error",
+				"The Mac mini's link to Claude Code isn't answering. Restart the Mac mini, or run the installer there again.",
+			),
+		);
+	if (!plan.found)
+		return sendJson(
+			res,
+			401,
+			hubError(
+				"authentication_error",
+				"Claude Code isn't installed on the Mac mini. In Terminal there, run: curl -fsSL https://claude.ai/install.sh | bash   then: claude auth login --claudeai",
+			),
+		);
+	if (!plan.loggedIn)
+		return sendJson(
+			res,
+			401,
+			hubError(
+				"authentication_error",
+				"Claude Code on the Mac mini isn't signed in. In Terminal there, run: claude auth login --claudeai",
+			),
+		);
+	const body = await readBody(req, 32 * 1024 * 1024);
+	const ctl = new AbortController();
+	res.on("close", () => {
+		if (!res.writableFinished) ctl.abort();
+	});
+	let up;
+	try {
+		up = await fetch(`http://127.0.0.1:${RELAY_PORT}/v1/messages`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				"x-api-key": relay.code,
+				"anthropic-version": String(req.headers["anthropic-version"] || "2023-06-01"),
+			},
+			body,
+			signal: ctl.signal,
+		});
+	} catch {
+		if (ctl.signal.aborted) return;
+		planStatus(true).catch(() => null);
+		return sendJson(
+			res,
+			502,
+			hubError(
+				"api_error",
+				"Claude Code on the Mac mini didn't answer. The “Mac mini” box on the Home screen says what's wrong.",
+			),
+		);
+	}
+	// A refusal (not signed in, out of usage) may mean the state changed: look again.
+	if (!up.ok) planStatus(true).catch(() => null);
+	res.writeHead(up.status, {
+		...SECURITY,
+		"content-type": up.headers.get("content-type") || "application/json",
+		"cache-control": "no-store",
+	});
+	if (!up.body) return res.end();
+	const stream = Readable.fromWeb(up.body);
+	stream.on("error", () => res.destroy());
+	stream.pipe(res);
+}
+
 /* ---------- Claude, with the key that stays on this Mac ---------- */
 async function claudeMessages(req, res) {
+	if (claudeVia() === "plan") return planMessages(req, res);
 	if (!cfg.claudeKey)
 		return sendJson(
 			res,
@@ -2658,9 +2876,12 @@ const localSha = (file) => {
 		return "";
 	}
 };
-// The server is two files: this one, and speech.cjs for the free speech models.
-const HUB_FILES = ["hub/hub.cjs", "hub/speech.cjs"];
-const hubFile = (name) => path.join(__dirname, path.basename(name));
+// The server is three files: this one, speech.cjs for the free speech models, and relay.cjs for
+// Claude through the owner's plan.
+const HUB_FILES = ["hub/hub.cjs", "hub/speech.cjs", "hub/relay.cjs"];
+// relay.cjs is wherever this server found it (in the repository it's assistant/relay/relay.cjs).
+const hubFile = (name) =>
+	name === "hub/relay.cjs" ? RELAY_FILE : path.join(__dirname, path.basename(name));
 const hubFileChanged = (name) => {
 	const want = lastCheck.files[name];
 	return !!want && want !== localSha(hubFile(name));
@@ -2688,7 +2909,9 @@ async function update({ withHub, speechFile }) {
 				continue;
 			if (!isHub && !TYPES[path.extname(name).toLowerCase()]) continue;
 			// speech.cjs is also fetched by itself when it isn't here at all (a server from before it).
-			const lone = speechFile && name === "hub/speech.cjs" && !fs.existsSync(hubFile(name));
+			const lone =
+				!fs.existsSync(hubFile(name)) &&
+				(name === "hub/relay.cjs" || (speechFile && name === "hub/speech.cjs"));
 			if (isHub ? !(lone || (withHub && needHub && hubFileChanged(name))) : localSha(path.join(APP, name)) === want)
 				continue;
 			const buf = await fetchBuf(`${SOURCE}/${name}`);
@@ -2729,8 +2952,10 @@ async function update({ withHub, speechFile }) {
 				if (fs.existsSync(file)) fs.copyFileSync(file, `${file}.previous`);
 				fs.renameSync(x.next, file);
 			}
-			// speech.cjs arriving for the first time is simply used; anything else needs a fresh start.
-			if (hub.some((x) => x.name === "hub/hub.cjs") || speechLib) {
+			// speech.cjs arriving for the first time is simply used, and a new relay.cjs only needs the
+			// link to Claude Code started again; a new hub.cjs, or speech.cjs while in use, needs a fresh start.
+			if (hub.some((x) => x.name === "hub/relay.cjs")) restartRelay();
+			if (hub.some((x) => x.name === "hub/hub.cjs" || (x.name === "hub/speech.cjs" && speechLib))) {
 				log("Updated the Mac mini's server; restarting.");
 				return {
 					ok: true,
@@ -2742,7 +2967,7 @@ async function update({ withHub, speechFile }) {
 		}
 		return {
 			ok: true,
-			message: pageChanged ? "Updated to the latest version." : "Already up to date.",
+			message: pageChanged || hub.length ? "Updated to the latest version." : "Already up to date.",
 		};
 	})();
 	try {
@@ -2810,7 +3035,11 @@ function status() {
 		hub: VERSION,
 		api: HUB_API,
 		app: appVersion(),
-		claude: !!cfg.claudeKey,
+		// Whether Claude can answer the way that's chosen; the plan's details for the Mac mini box.
+		claude: claudeVia() === "key" ? !!cfg.claudeKey : planReady(),
+		claudeVia: claudeVia(),
+		claudeKeySaved: !!cfg.claudeKey,
+		plan: relay.plan,
 		speech: !!cfg.speechKey,
 		local: speechInfo(),
 		code: cfg.code,
@@ -2873,6 +3102,11 @@ async function api(req, res, url) {
 	}
 	if (route === "/api/status" && req.method === "GET") {
 		if (Date.now() - lastCheck.at > 6 * 3600000) checkUpdate().catch(() => null);
+		// The first look at Claude Code is waited for; after that it is refreshed behind the answer.
+		if (claudeVia() === "plan") {
+			if (!relay.checkedAt) await planStatus();
+			else planStatus().catch(() => null);
+		}
 		return sendJson(res, 200, status());
 	}
 	if (route === "/api/keys" && req.method === "PUT") {
@@ -2881,11 +3115,22 @@ async function api(req, res, url) {
 		const speech = cleanKey(body.speechKey);
 		if (claude !== undefined) cfg.claudeKey = claude;
 		if (speech !== undefined) cfg.speechKey = speech;
+		if (body.claudeVia === "plan" || body.claudeVia === "key") cfg.claudeVia = body.claudeVia;
+		// A key saved without saying which way (a page from before the plan) means: use the key.
+		else if (claude) cfg.claudeVia = "key";
 		saveConfig();
 		log(
-			`Keys changed (Claude ${cfg.claudeKey ? "set" : "empty"}, speech ${cfg.speechKey ? "set" : "empty"}).`,
+			`Keys changed (Claude ${claudeVia() === "plan" ? "through your plan" : cfg.claudeKey ? "key set" : "key empty"}, speech ${cfg.speechKey ? "set" : "empty"}).`,
 		);
-		return sendJson(res, 200, { claude: !!cfg.claudeKey, speech: !!cfg.speechKey });
+		if (claudeVia() === "plan") await planStatus(true);
+		const st = status();
+		return sendJson(res, 200, {
+			claude: st.claude,
+			claudeVia: st.claudeVia,
+			claudeKeySaved: st.claudeKeySaved,
+			plan: st.plan,
+			speech: st.speech,
+		});
 	}
 	if (route === "/api/update") {
 		if (req.method === "GET")
@@ -3000,6 +3245,8 @@ function main() {
 		ensureApp();
 		backupIfDue();
 		startSpeech();
+		startRelay();
+		setTimeout(() => planStatus(true).catch(() => null), 3000).unref();
 		loadJobs();
 		tidyRecordings();
 		if (cfg.keepAwake && process.platform === "darwin") {
@@ -3024,8 +3271,11 @@ function main() {
 	setInterval(backupIfDue, 3600000).unref();
 	setInterval(tidyRecordings, 3600000).unref();
 	setInterval(dailyUpdate, 6 * 3600000).unref();
+	// The relay goes when the server goes, whatever the reason, or it would hold its port with an old code.
+	process.on("exit", stopRelay);
 	for (const sig of ["SIGTERM", "SIGINT"])
 		process.on(sig, () => {
+			stopRelay();
 			for (const res of watchers) res.end();
 			server.close(() => process.exit(0));
 			setTimeout(() => process.exit(0), 2000).unref();

@@ -529,6 +529,9 @@ fs.writeFileSync(a[7], wav(secondsOf(a[6])));
 				// These are the checks of the Soniox way; the Mac's own models are checked in check-speech.cjs.
 				AK_HUB_SPEECH: "off",
 				AK_HUB_PORT: String(port),
+				// No real Claude Code here, even where one is installed, and a port of the checks' own for the link to it.
+				AK_HUB_CLAUDE: path.join(os.tmpdir(), "no-such-claude"),
+				AK_HUB_RELAY_PORT: String(port + 1),
 				AK_HUB_BIND: "127.0.0.1",
 				AK_HUB_SONIOX: `http://127.0.0.1:${soniox.address().port}`,
 				AK_HUB_SOURCE: `http://127.0.0.1:${nothing.address().port}`,

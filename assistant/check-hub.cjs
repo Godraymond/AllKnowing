@@ -99,11 +99,16 @@ const readAll = (req) =>
 	const base = `http://127.0.0.1:${port}`;
 	let proc = null;
 	let exited = null;
-	const startHub = async () => {
+	const relayPort = 30000 + Math.floor(Math.random() * 9000);
+	const startHub = async (extra = {}) => {
 		exited = null;
 		proc = spawn(process.execPath, [HUB], {
 			env: {
 				...process.env,
+				AK_HUB_RELAY_PORT: String(relayPort),
+				// No real Claude Code in these checks, even where one is installed.
+				AK_HUB_CLAUDE: path.join(tmp, "no-such-claude"),
+				...extra,
 				AK_HUB_HOME: home,
 				// The free speech models have their own check (check-speech.cjs); here they would be fetched for real.
 				AK_HUB_SPEECH: "off",
@@ -164,6 +169,9 @@ const readAll = (req) =>
 		});
 
 	try {
+		// These checks start with Claude through an API key; Claude through the owner's plan is checked in 4b.
+		fs.mkdirSync(home, { recursive: true });
+		fs.writeFileSync(path.join(home, "config.json"), JSON.stringify({ claudeVia: "key" }));
 		await startHub();
 
 		// ---------- 1. the app ----------
@@ -394,6 +402,177 @@ const readAll = (req) =>
 		ok(
 			"a device without the code can't use Claude",
 			(await req("POST", "/v1/messages", { headers: REMOTE, body: "{}" })).status === 401,
+		);
+
+		// ---------- 4b. Claude through the owner's plan: Claude Code on the Mac mini ----------
+		// The hub runs the relay (relay/relay.cjs) with a stand-in for Claude Code (relay/fake-claude.cjs).
+		const FAKE_CLAUDE = path.join(__dirname, "relay", "fake-claude.cjs");
+		const toldBy = (text) =>
+			text
+				.split("\n")
+				.filter((l) => l.startsWith("data:"))
+				.map((l) => {
+					try {
+						return JSON.parse(l.slice(5));
+					} catch {
+						return {};
+					}
+				})
+				.filter((e) => e.type === "content_block_delta")
+				.map((e) => e.delta.text)
+				.join("");
+		const ask = () =>
+			req("POST", "/v1/messages", {
+				headers: asDevice({ "content-type": "application/json", "anthropic-version": "2023-06-01" }),
+				body: {
+					model: "claude-haiku-5-5",
+					max_tokens: 50,
+					stream: true,
+					messages: [{ role: "user", content: "Reply with the single word OK." }],
+				},
+			});
+		await stopHub();
+		await startHub({ AK_HUB_CLAUDE: FAKE_CLAUDE });
+		const toPlan = await req("PUT", "/api/keys", {
+			headers: asDevice({ "content-type": "application/json" }),
+			body: { claudeVia: "plan" },
+		});
+		ok(
+			"switched to your plan: Claude Code is found and signed in, so Claude is ready",
+			toPlan.status === 200 &&
+				toPlan.json.claudeVia === "plan" &&
+				toPlan.json.claude === true &&
+				toPlan.json.plan.running &&
+				toPlan.json.plan.found &&
+				toPlan.json.plan.loggedIn &&
+				toPlan.json.plan.authMethod === "claude.ai" &&
+				/2\.1\.325/.test(toPlan.json.plan.version),
+			toPlan.text,
+		);
+		const keyCallsBefore = claudeCalls.length;
+		const viaPlan = await ask();
+		ok(
+			"Claude answers through Claude Code on the Mac mini, streamed the way the API would",
+			viaPlan.status === 200 && /event-stream/.test(viaPlan.headers["content-type"]) && toldBy(viaPlan.text).length > 0,
+			viaPlan.text.slice(0, 400),
+		);
+		ok("…and the API key isn't used", claudeCalls.length === keyCallsBefore, `${claudeCalls.length - keyCallsBefore} calls`);
+		st = (await req("GET", "/api/status", { headers: asDevice() })).json;
+		ok(
+			"status says Claude runs through your plan, and that a key is still saved for later",
+			st.claude === true && st.claudeVia === "plan" && st.claudeKeySaved === true && st.plan.loggedIn,
+			JSON.stringify({ claude: st.claude, via: st.claudeVia, key: st.claudeKeySaved, plan: st.plan }),
+		);
+		ok(
+			"the choice is kept in config.json",
+			JSON.parse(fs.readFileSync(path.join(home, "config.json"), "utf8")).claudeVia === "plan",
+		);
+		const relayUp = async () => {
+			try {
+				await fetch(`http://127.0.0.1:${relayPort}/`, { signal: AbortSignal.timeout(2000) });
+				return true;
+			} catch {
+				return false;
+			}
+		};
+		ok("the relay listens on this Mac only, behind its own code", (await relayUp()) && (await fetch(`http://127.0.0.1:${relayPort}/health`)).status === 401);
+		await stopHub();
+		ok("the relay stops with the server, so a restart doesn't find its port taken", !(await relayUp()));
+		// Killed outright (a crash, or launchd), the server still takes the relay with it.
+		await startHub({ AK_HUB_CLAUDE: FAKE_CLAUDE });
+		for (let i = 0; i < 50 && !(await relayUp()); i++) await sleep(100);
+		const wasUp = await relayUp();
+		proc.kill("SIGKILL");
+		for (let i = 0; i < 40 && exited === null; i++) await sleep(50);
+		let relayGone = false;
+		for (let i = 0; i < 50 && !relayGone; i++) {
+			relayGone = !(await relayUp());
+			if (!relayGone) await sleep(100);
+		}
+		ok("…even when the server is killed outright", wasUp && relayGone, `${wasUp} ${relayGone}`);
+		// Something else on the relay's port: said plainly, not as that other thing's error.
+		const squatter = http.createServer((_q, r) => {
+			r.writeHead(401, { "content-type": "application/json" });
+			r.end("{}");
+		});
+		await new Promise((r) => squatter.listen(relayPort, "127.0.0.1", r));
+		await startHub({ AK_HUB_CLAUDE: FAKE_CLAUDE });
+		const noLink = await ask();
+		ok(
+			"the link to Claude Code not answering: Claude says so plainly",
+			noLink.status === 503 && /isn't answering/.test(noLink.json.error.message),
+			noLink.text,
+		);
+		await stopHub();
+		await new Promise((r) => squatter.close(r));
+		await startHub({ AK_HUB_CLAUDE: FAKE_CLAUDE, FAKE_CLAUDE_LOGGED_IN: "0" });
+		st = (await req("GET", "/api/status", { headers: asDevice() })).json;
+		const signedOut = await ask();
+		ok(
+			"Claude Code not signed in: status says so, and Claude says to sign in instead of failing quietly",
+			st.claude === false &&
+				st.plan.found === true &&
+				st.plan.loggedIn === false &&
+				signedOut.status === 401 &&
+				/isn't signed in.*claude auth login/.test(signedOut.json.error.message),
+			`${JSON.stringify(st.plan)} ${signedOut.status} ${signedOut.text.slice(0, 300)}`,
+		);
+		await stopHub();
+		await startHub({ AK_HUB_CLAUDE: path.join(tmp, "no-such-claude") });
+		st = (await req("GET", "/api/status", { headers: asDevice() })).json;
+		ok(
+			"no Claude Code on the Mac at all: status says so",
+			st.claude === false && st.plan.running === true && st.plan.found === false,
+			JSON.stringify(st.plan),
+		);
+		const noClaude = await ask();
+		ok(
+			"…and Claude says how to install it",
+			noClaude.status === 401 && /isn't installed on the Mac mini.*claude\.ai\/install\.sh/.test(noClaude.json.error.message),
+			noClaude.text,
+		);
+		// Installed afterwards where Anthropic's installer puts it: the hub finds it without a restart.
+		await stopHub();
+		const fakeHome = path.join(tmp, "owner-home");
+		fs.mkdirSync(path.join(fakeHome, ".local", "bin"), { recursive: true });
+		// A PATH with node (the stand-in starts with #!/usr/bin/env node) and no Claude Code on it.
+		const onlyNode = path.join(tmp, "only-node");
+		fs.mkdirSync(onlyNode, { recursive: true });
+		fs.symlinkSync(process.execPath, path.join(onlyNode, "node"));
+		await startHub({ AK_HUB_CLAUDE: "", HOME: fakeHome, PATH: `${onlyNode}:/usr/bin:/bin` });
+		st = (await req("GET", "/api/status", { headers: asDevice() })).json;
+		const before = st.plan.found;
+		fs.copyFileSync(FAKE_CLAUDE, path.join(fakeHome, ".local", "bin", "claude"));
+		fs.chmodSync(path.join(fakeHome, ".local", "bin", "claude"), 0o755);
+		let after = false;
+		for (let i = 0; i < 40 && !after; i++) {
+			await sleep(500);
+			after = !!(await req("GET", "/api/status", { headers: asDevice() })).json.plan.found;
+		}
+		ok("Claude Code installed after the server started is picked up", before === false && after, `${before} ${after}`);
+		await stopHub();
+		await startHub({ AK_HUB_CLAUDE: path.join(tmp, "no-such-claude") });
+		const toKey = await req("PUT", "/api/keys", {
+			headers: asDevice({ "content-type": "application/json" }),
+			body: { claudeVia: "key" },
+		});
+		const viaKey = await ask();
+		ok(
+			"back to the key: Claude goes through the API again",
+			toKey.json.claudeVia === "key" && toKey.json.claude === true && viaKey.status === 200 && claudeCalls.length === keyCallsBefore + 1,
+			`${toKey.text} ${viaKey.status}`,
+		);
+		await req("PUT", "/api/keys", {
+			headers: asDevice({ "content-type": "application/json" }),
+			body: { claudeVia: "plan" },
+		});
+		await req("PUT", "/api/keys", {
+			headers: asDevice({ "content-type": "application/json" }),
+			body: { claudeKey: "sk-ant-good" },
+		});
+		ok(
+			"a key saved by a page from before (no choice sent) means: use the key",
+			JSON.parse(fs.readFileSync(path.join(home, "config.json"), "utf8")).claudeVia === "key",
 		);
 
 		// ---------- 5. one-use speech keys ----------
@@ -648,6 +827,8 @@ const readAll = (req) =>
 		proc = spawn(process.execPath, [path.join(home, "hub", "hub.cjs")], {
 			env: {
 				...process.env,
+				AK_HUB_RELAY_PORT: String(relayPort),
+				AK_HUB_CLAUDE: path.join(tmp, "no-such-claude"),
 				AK_HUB_HOME: home,
 				// The free speech models have their own check (check-speech.cjs); here they would be fetched for real.
 				AK_HUB_SPEECH: "off",
@@ -690,6 +871,15 @@ const readAll = (req) =>
 		ok(
 			"the real hub file was never touched",
 			!fs.readFileSync(realHub, "utf8").includes("a newer server"),
+		);
+		ok(
+			"a server without relay.cjs gets it next to itself",
+			fs.readFileSync(path.join(home, "hub", "relay.cjs"), "utf8") ===
+				fs.readFileSync(path.join(__dirname, "relay", "relay.cjs"), "utf8"),
+		);
+		ok(
+			"…and the hub run from the repository uses the repository's relay, with no copy put next to it",
+			!fs.existsSync(path.join(__dirname, "hub", "relay.cjs")),
 		);
 		ok(
 			"notes untouched by updates",

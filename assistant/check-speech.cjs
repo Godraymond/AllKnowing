@@ -310,7 +310,7 @@ const same = (lines, want = WANT) => {
 	let hubLog = "";
 	const startHub = async (extra = {}) => {
 		proc = spawn(process.execPath, [HUB], {
-			env: { ...process.env, AK_HUB_HOME: hubHome, AK_HUB_BIND: "127.0.0.1", AK_HUB_SOURCE: `http://127.0.0.1:${nothing.address().port}`, AK_HUB_SPEECH_SOURCE: `http://127.0.0.1:${source.address().port}`, AK_SPEECH_CATALOGUE: catalogueFile, AK_FAKE_SCRIPT: scriptFile, AK_HUB_FFMPEG: "", AK_HUB_AFCONVERT: "", AK_HUB_RETRY_MS: "1", ...extra },
+			env: { ...process.env, AK_HUB_HOME: hubHome, AK_HUB_BIND: "127.0.0.1", AK_HUB_SOURCE: `http://127.0.0.1:${nothing.address().port}`, AK_HUB_SPEECH_SOURCE: `http://127.0.0.1:${source.address().port}`, AK_SPEECH_CATALOGUE: catalogueFile, AK_FAKE_SCRIPT: scriptFile, AK_HUB_FFMPEG: "", AK_HUB_AFCONVERT: "", AK_HUB_RETRY_MS: "1", AK_HUB_CLAUDE: path.join(os.tmpdir(), "no-such-claude"), AK_HUB_RELAY_PORT: String(port + 1), ...extra },
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 		proc.stdout.on("data", (d) => {

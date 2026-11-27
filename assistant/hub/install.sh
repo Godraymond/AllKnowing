@@ -49,6 +49,9 @@ if (: </dev/tty) 2>/dev/null; then TTY=/dev/tty; fi
 find_tailscale() {
 	first_executable "$(command -v tailscale 2>/dev/null || true)" /Applications/Tailscale.app/Contents/MacOS/Tailscale /opt/homebrew/bin/tailscale /usr/local/bin/tailscale
 }
+find_claude() {
+	first_executable "${AK_HUB_CLAUDE:-}" "$(command -v claude 2>/dev/null || true)" "$HOME/.local/bin/claude" "$HOME/.claude/local/claude" /opt/homebrew/bin/claude /usr/local/bin/claude
+}
 find_node() {
 	local c nvm=""
 	for c in "$HOME"/.nvm/versions/node/*/bin/node; do
@@ -106,7 +109,7 @@ const get = async (name) => {
 	const staged = [];
 	for (const [name, want] of Object.entries(v.files || {})) {
 		if (name === "hub/install.sh") continue;
-		const target = name === "hub/hub.cjs" || name === "hub/speech.cjs" ? path.join(dir, name) : /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) ? path.join(dir, "app", name) : null;
+		const target = name === "hub/hub.cjs" || name === "hub/speech.cjs" || name === "hub/relay.cjs" ? path.join(dir, name) : /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) ? path.join(dir, "app", name) : null;
 		if (!target) continue;
 		const buf = await get(name);
 		if (crypto.createHash("sha256").update(buf).digest("hex") !== want) throw new Error(`${name} didn't match its published hash`);
@@ -126,6 +129,7 @@ const get = async (name) => {
 JS
 "$NODE" --check "$DIR/hub/hub.cjs" || stop "The downloaded server didn't pass its check. Try again in a few minutes."
 [ ! -f "$DIR/hub/speech.cjs" ] || "$NODE" --check "$DIR/hub/speech.cjs" || stop "The downloaded server didn't pass its check. Try again in a few minutes."
+[ ! -f "$DIR/hub/relay.cjs" ] || "$NODE" --check "$DIR/hub/relay.cjs" || stop "The downloaded server didn't pass its check. Try again in a few minutes."
 
 # ---- settings: a pairing code the first time; your keys and notes are kept ----
 "$NODE" - "$DIR/config.json" "$PORT" <<'JS'
@@ -151,6 +155,42 @@ PORT="$(json_get port <"$DIR/config.json")"
 set_config() { # key value
 	"$NODE" -e 'const fs=require("fs");const [f,k,v]=process.argv.slice(1);const c=JSON.parse(fs.readFileSync(f,"utf8"));c[k]=v;fs.writeFileSync(f,JSON.stringify(c,null,2)+"\n",{mode:0o600})' "$DIR/config.json" "$1" "$2"
 }
+
+# ---- Claude Code, signed in with your Claude plan: AllKnowing asks Claude through it ----
+# Nothing to pay on top of your plan. If this part doesn't finish, AllKnowing still installs, and the
+# Mac mini box on its Home screen says what's left (or takes an API key instead).
+CLAUDE="$(find_claude || true)"
+if [ -z "$CLAUDE" ] && [ -z "${AK_HUB_TEST:-}" ]; then
+	bold "Installing Claude Code with Anthropic's own installer"
+	curl -fsSL https://claude.ai/install.sh | bash || true
+	CLAUDE="$(find_claude || true)"
+fi
+if [ -z "$CLAUDE" ]; then
+	warn "Claude Code isn't on this Mac, so summaries and “what to say” wait until it is."
+	note "Install it with:  curl -fsSL https://claude.ai/install.sh | bash   then:  claude auth login --claudeai"
+else
+	note "Claude Code $("$CLAUDE" --version 2>/dev/null | head -1) at $CLAUDE"
+	set_config claudePath "$CLAUDE"
+	signed_in() { [ "$("$CLAUDE" auth status --json 2>/dev/null | json_get loggedIn)" = "true" ]; }
+	if ! signed_in && [ "$TTY" != /dev/null ]; then
+		bold "Sign in to Claude Code with your Claude account (the one with your plan)"
+		note "A browser window opens. Approve it there, then come back to this window."
+		"$CLAUDE" auth login --claudeai <"$TTY" || true
+	fi
+	if signed_in; then
+		AUTH_METHOD="$("$CLAUDE" auth status --json 2>/dev/null | json_get authMethod)"
+		note "Signed in (${AUTH_METHOD:-signed in})"
+		case "$AUTH_METHOD" in
+			*[Aa][Pp][Ii]* | *[Cc]onsole*)
+				warn "Claude Code here is signed in with an API account, so Claude would be billed to the API, not your plan."
+				note "To use your plan instead, run:  claude auth logout   then:  claude auth login --claudeai"
+				;;
+		esac
+	else
+		warn "Claude Code isn't signed in yet, so summaries and “what to say” wait until it is."
+		note "Sign in with:  claude auth login --claudeai"
+	fi
+fi
 
 # ---- Tailscale: a secure link for your own devices, which listening needs ----
 TS="$(find_tailscale || true)"
@@ -247,7 +287,7 @@ fi
 bold "Done."
 printf '\n  Pairing code:  \033[1m%s\033[0m   (each phone or computer asks for it once)\n' "$CODE"
 note ""
-note "On this Mac:               http://localhost:$PORT   (add your Claude and Soniox keys here, once)"
+note "On this Mac:               http://localhost:$PORT   (add your Soniox key here, once, for listening on phones)"
 note "Recordings:                it is now fetching its free speech models (about 1.8 GB, once). The Mac mini box on Home shows how far."
 note "At home, other devices:    http://$LAN_NAME.local:$PORT   (reading, preparing, importing)"
 if [ -n "$TS_URL" ]; then

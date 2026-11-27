@@ -17,7 +17,7 @@ const crypto = require("node:crypto");
 // What this page expects of the Mac mini's server (HUB_API in hub/hub.cjs). Raise both together when the
 // page starts using something new there, so an older hub waits for its own update instead.
 // 2: recordings turned into text (/api/transcribe).
-const HUB_API = 3;
+const HUB_API = 4;
 
 const src = __dirname;
 const web = path.join(src, "web");
@@ -63,6 +63,8 @@ for (const name of [
 fs.mkdirSync(path.join(out, "hub"), { recursive: true });
 for (const name of ["hub.cjs", "speech.cjs", "install.sh"])
 	fs.copyFileSync(path.join(src, "hub", name), path.join(out, "hub", name));
+// Claude through the owner's plan: the hub runs the relay as a child.
+fs.copyFileSync(path.join(src, "relay", "relay.cjs"), path.join(out, "hub", "relay.cjs"));
 // GitHub Pages: serve the files as they are.
 fs.writeFileSync(path.join(out, ".nojekyll"), "");
 const files = {};

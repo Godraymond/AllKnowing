@@ -143,8 +143,13 @@ function fakeFetch(url, init) {
 	};
 	return Promise.resolve({ ok: true, status: 200, body: { getReader: () => reader } });
 }
+// Computers listen with the browser's own speech recognition by default; these checks of the Soniox
+// listener set this "device" to use Soniox everywhere. The browser's own is checked further down.
 const store = new Map([
-	["allknowing:keys:v1", JSON.stringify({ claudeKey: "sk-ant-test", speechKey: "abc123" })],
+	[
+		"allknowing:keys:v1",
+		JSON.stringify({ claudeKey: "sk-ant-test", speechKey: "abc123", soniox: "all" }),
+	],
 ]);
 const notices = [];
 const sandbox = {
@@ -500,8 +505,8 @@ vm.runInNewContext(code, sandbox);
 	await dict.stop();
 	FakeSocket.refuseHandshakeKey = false;
 
-	// no keys at all
-	store.set("allknowing:keys:v1", "{}");
+	// no keys at all (on a device set to listen with Soniox)
+	store.set("allknowing:keys:v1", JSON.stringify({ soniox: "all" }));
 	const bare = { ...sandbox, claude: undefined };
 	bare.window = bare;
 	vm.runInNewContext(code, bare);
@@ -663,13 +668,214 @@ vm.runInNewContext(code, sandbox);
 		/Paste the Mac link/.test(noLink.claude.notice) &&
 			(await noKey(async () => (await noLink.claude.use("sample"))("x"))) === "no_key",
 	);
-	store.set("allknowing:keys:v1", JSON.stringify({ claudeKey: "sk-ant-x" }));
+	store.set("allknowing:keys:v1", JSON.stringify({ claudeKey: "sk-ant-x", soniox: "all" }));
 	const legacy = { ...sandbox, claude: undefined };
 	legacy.window = legacy;
 	vm.runInNewContext(code, legacy);
 	ok(
 		"someone who already set an API key stays on it",
 		/speech key/.test(legacy.claude.notice) && !/Mac/.test(legacy.claude.notice),
+	);
+
+
+	// ---- listening with the browser's own speech recognition: free, and what computers use ----
+	// A stand-in for the browser's SpeechRecognition: each start makes a session the check drives.
+	class FakeRecognizer {
+		constructor() {
+			FakeRecognizer.made.push(this);
+			this.started = 0;
+			this.stopped = 0;
+			this.aborted = 0;
+		}
+		start() {
+			this.started++;
+			const err = FakeRecognizer.failStart;
+			setTimeout(() => {
+				if (err) {
+					if (this.onerror) this.onerror({ error: err });
+					if (this.onend) this.onend();
+				} else if (this.onstart) this.onstart();
+			}, 5);
+		}
+		stop() {
+			this.stopped++;
+			setTimeout(() => this.onend && this.onend(), 5);
+		}
+		abort() {
+			this.aborted++;
+			setTimeout(() => this.onend && this.onend(), 5);
+		}
+		say(list, resultIndex = 0) {
+			const results = list.map(([transcript, isFinal]) => Object.assign([{ transcript }], { isFinal }));
+			this.onresult({ resultIndex, results });
+		}
+		end(error) {
+			if (error && this.onerror) this.onerror({ error });
+			if (this.onend) this.onend();
+		}
+	}
+	FakeRecognizer.made = [];
+	FakeRecognizer.failStart = "";
+	const CHROME =
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
+	const IPHONE =
+		"Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1";
+	const device = ({ ua = CHROME, recognizer = true, keys = { claudeKey: "sk-ant-test" }, lang = "en-GB" } = {}) => {
+		const own = new Map([["allknowing:keys:v1", JSON.stringify(keys)]]);
+		const box = {
+			...sandbox,
+			claude: undefined,
+			navigator: { ...sandbox.navigator, userAgent: ua, language: lang },
+			localStorage: {
+				getItem: (k) => (own.has(k) ? own.get(k) : null),
+				setItem: (k, v) => own.set(k, String(v)),
+			},
+			webkitSpeechRecognition: recognizer ? FakeRecognizer : undefined,
+		};
+		box.window = box;
+		vm.runInNewContext(code, box);
+		return box;
+	};
+	const pc = device();
+	const pcDict = await pc.claude.use("dictation");
+	ok(
+		"on a computer it listens with the browser's own speech recognition: free, no voices, no speech key needed",
+		pcDict.via === "browser" && pcDict.voices === false && pcDict.unavailable === "" && pc.claude.notice === "",
+		`${pcDict.via} ${pcDict.voices} "${pcDict.unavailable}" "${pc.claude.notice}"`,
+	);
+	const got = { partial: [], final: [], state: [] };
+	pcDict.onPartial((e) => got.partial.push(e.text));
+	pcDict.onFinal((e) => got.final.push(e.text));
+	pcDict.onState((e) => got.state.push(e));
+	const started = pcDict.start({ language: "en" });
+	const rec1 = FakeRecognizer.made[0];
+	ok(
+		"the recognizer is started inside the tap itself, before anything is awaited",
+		FakeRecognizer.made.length === 1 && rec1.started === 1,
+	);
+	await started;
+	ok(
+		"it listens continuously with live guesses, in the meeting's language as this browser knows it",
+		rec1.continuous === true && rec1.interimResults === true && rec1.lang === "en-GB" &&
+			got.state.some((e) => e.state === "listening"),
+		`${rec1.lang} ${JSON.stringify(got.state)}`,
+	);
+	rec1.say([["hello there", false]]);
+	rec1.say([["hello there", true]]);
+	rec1.say([["how are you", false]], 0);
+	rec1.say([["how are you", true]], 0);
+	ok(
+		"live guesses show as they come, and finished phrases are spaced like the rest",
+		got.partial.includes("hello there") && got.partial.includes("how are you") &&
+			JSON.stringify(got.final) === JSON.stringify(["hello there", " how are you"]),
+		`${JSON.stringify(got.partial)} ${JSON.stringify(got.final)}`,
+	);
+	rec1.say([["我们开始", true]]);
+	rec1.say([["讨论预算", true]]);
+	ok("Chinese runs on without spaces", got.final.slice(-2).join("|") === "我们开始|讨论预算", JSON.stringify(got.final));
+	rec1.end();
+	await sleep(320);
+	const rec2 = FakeRecognizer.made[1];
+	ok(
+		"when the browser stops by itself (a quiet spell, its time limit), it starts again without a word",
+		!!rec2 && rec2.started === 1 && !got.state.some((e) => e.state === "idle"),
+		`${FakeRecognizer.made.length} sessions; ${JSON.stringify(got.state)}`,
+	);
+	await sleep(20);
+	rec2.end("network");
+	await sleep(400);
+	const waitedForNetwork = FakeRecognizer.made.length === 2;
+	await sleep(1300);
+	ok(
+		"after a network blip it waits a little longer before starting again",
+		waitedForNetwork && FakeRecognizer.made.length === 3,
+		`${FakeRecognizer.made.length} sessions`,
+	);
+	const rec3 = FakeRecognizer.made[2];
+	await sleep(20);
+	rec3.end("not-allowed");
+	await sleep(50);
+	const blocked = got.state[got.state.length - 1] || {};
+	ok(
+		"a blocked microphone stops it, saying what to do",
+		blocked.state === "idle" && blocked.reason === "not_granted" && /padlock/.test(blocked.userMessage || "") &&
+			FakeRecognizer.made.length === 3,
+		JSON.stringify(blocked),
+	);
+	await pcDict.start({ language: "zh" });
+	const rec4 = FakeRecognizer.made[FakeRecognizer.made.length - 1];
+	ok("Chinese listens as Mandarin (zh-CN)", rec4.lang === "zh-CN", rec4.lang);
+	await pcDict.stop();
+	const stopped = got.state[got.state.length - 1] || {};
+	ok(
+		"Stop asks the browser for its last words and ends cleanly",
+		rec4.stopped === 1 && stopped.state === "idle" && stopped.reason === "stopped",
+		JSON.stringify(stopped),
+	);
+	await pcDict.start({});
+	ok("Auto listens in the browser's own language", FakeRecognizer.made[FakeRecognizer.made.length - 1].lang === "en-GB");
+	for (let i = 0; i < 7; i++) {
+		const r = FakeRecognizer.made[FakeRecognizer.made.length - 1];
+		await sleep(15);
+		r.end();
+		await sleep(230);
+		if (got.state[got.state.length - 1].state === "idle") break;
+	}
+	const gaveUp = got.state[got.state.length - 1] || {};
+	ok(
+		"if it keeps stopping straight after starting, it gives up and says why instead of looping",
+		gaveUp.state === "idle" && /keeps stopping/.test(gaveUp.userMessage || ""),
+		JSON.stringify(gaveUp),
+	);
+	const failsWith = async (err) => {
+		FakeRecognizer.failStart = err;
+		try {
+			await pcDict.start({ language: "en" });
+			return "started";
+		} catch (e) {
+			return `${e.code}: ${e.userMessage || ""}`;
+		} finally {
+			FakeRecognizer.failStart = "";
+		}
+	};
+	const refused = await failsWith("not-allowed");
+	const noLanguage = await failsWith("language-not-supported");
+	ok(
+		"refused before it begins: blocked microphone, or a language the browser can't do",
+		/^not_granted: .*padlock/.test(refused) && /^unavailable: .*that language/.test(noLanguage),
+		`${refused} / ${noLanguage}`,
+	);
+
+	const phone = device({ ua: IPHONE, keys: { claudeKey: "sk-ant-test", speechKey: "abc123" } });
+	const phoneDict = await phone.claude.use("dictation");
+	const phoneNever = device({ ua: IPHONE, keys: { claudeKey: "sk-ant-test", soniox: "never" } });
+	const phoneNeverDict = await phoneNever.claude.use("dictation");
+	ok(
+		"an iPhone listens with Soniox (which tells voices apart), unless it's set to never",
+		phoneDict.via === "soniox" && phoneDict.voices === true && phoneNeverDict.via === "browser",
+		`${phoneDict.via} ${phoneNeverDict.via}`,
+	);
+	const phoneNoKey = device({ ua: IPHONE });
+	ok(
+		"an iPhone without a speech key is asked for one; a computer isn't",
+		/speech key/.test(phoneNoKey.claude.notice) && pc.claude.notice === "",
+		phoneNoKey.claude.notice,
+	);
+	const firefox = device({
+		ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+		recognizer: false,
+	});
+	const ffDict = await firefox.claude.use("dictation");
+	let ffStart = "";
+	try {
+		await ffDict.start({});
+	} catch (e) {
+		ffStart = e.code;
+	}
+	ok(
+		"a browser that can't listen by itself says so, and how to fix it",
+		ffDict.via === "" && /Chrome, Edge or Safari/.test(ffDict.unavailable) && /Soniox/.test(ffDict.unavailable) && ffStart === "unavailable",
+		`${ffDict.via} "${ffDict.unavailable}" ${ffStart}`,
 	);
 
 	const inside = { ...sandbox, claude: { real: true } };
@@ -837,7 +1043,7 @@ vm.runInNewContext(code, sandbox);
 		}
 		return resp(404, {});
 	};
-	const hubStore = new Map([["allknowing:keys:v1", JSON.stringify({})]]);
+	const hubStore = new Map([["allknowing:keys:v1", JSON.stringify({ soniox: "all" })]]);
 	const onHub = (opts = {}) => {
 		const box = {
 			...sandbox,

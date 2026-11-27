@@ -40,6 +40,9 @@
 		quick: "claude-haiku-5-5",
 		thorough: "claude-sonnet-5-5",
 		speechModel: "stt-rt-v6",
+		// Which devices listen with Soniox (paid): "phones" (iPhone, iPad, Android), "all" or "never".
+		// The others use the browser's own speech recognition, which is free.
+		soniox: "phones",
 	};
 	const MODELS = [
 		["claude-haiku-5-5", "Claude Haiku 5.5 (fastest, cheapest)"],
@@ -65,6 +68,7 @@
 	const isIOS = () =>
 		/iPad|iPhone|iPod/.test(navigator.userAgent) ||
 		(navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+	const isPhone = () => isIOS() || /Android/i.test(navigator.userAgent);
 	const isInstalled = () =>
 		window.navigator.standalone === true ||
 		(window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
@@ -106,9 +110,10 @@
 	// What the page should say at the top while something is missing.
 	function missing() {
 		if (HUB) return hubMissing();
-		if (!claudeReady() && !cfg.speechKey)
+		const needKey = listener() === "soniox" && !cfg.speechKey;
+		if (!claudeReady() && needKey)
 			return "To get going, open the “This device” box on the Home screen: connect Claude and add your speech key.";
-		if (!cfg.speechKey)
+		if (needKey)
 			return "Add a speech key in the “This device” box on the Home screen to switch on listening.";
 		if (!claudeReady())
 			return viaMac()
@@ -159,12 +164,18 @@
 			return "Can't reach your Mac mini. Check it's on, and that this device is on the home Wi-Fi or connected to Tailscale.";
 		if (hub.state !== "ok") return "";
 		const st = hub.status;
-		if (!st.claude && !st.speech)
-			return "Add your Claude and speech keys in the “Mac mini” box on the Home screen. It's once, for all your devices.";
-		if (!st.speech)
-			return "Add a speech key in the “Mac mini” box on the Home screen to switch on listening.";
+		const needKey = listener() === "soniox" && !st.speech;
+		const plan = st.claudeVia === "plan";
+		if (!st.claude && needKey)
+			return plan
+				? "Two things to finish in the “Mac mini” box on the Home screen: Claude Code on the Mac mini, and the speech key for listening on this device."
+				: "Add your Claude and speech keys in the “Mac mini” box on the Home screen. It's once, for all your devices.";
+		if (needKey)
+			return "Add a speech key in the “Mac mini” box on the Home screen to switch on listening on this device.";
 		if (!st.claude)
-			return "Add a Claude API key in the “Mac mini” box on the Home screen to switch on summaries and “what to say”.";
+			return plan
+				? "Claude Code on your Mac mini isn't ready yet, so summaries and “what to say” are off. The “Mac mini” box on the Home screen says what to do."
+				: "Add a Claude API key in the “Mac mini” box on the Home screen to switch on summaries and “what to say”.";
 		return "";
 	}
 	const hubHeaders = (extra) => ({ ...extra, ...(hub.code ? { "x-api-key": hub.code } : {}) });
@@ -1162,6 +1173,7 @@ registerProcessor("ak-pcm", AkPcm);`;
 	// Stops everything and tells the page why (it shows `message`, or its own words for `reason`).
 	function halt(r, reason, message) {
 		if (run !== r) return;
+		if (r.kind === "browser") return haltBrowser(r, reason, message);
 		r.stopping = true;
 		drain(r, true);
 		closeAudio(r);
@@ -1233,6 +1245,9 @@ registerProcessor("ak-pcm", AkPcm);`;
 		if (HUB && !window.isSecureContext) throw fail("insecure", insecureNote());
 		if (HUB && hub.state === "unpaired")
 			throw fail("no_key", `To listen, connect this device to your Mac mini ${WHERE}.`);
+		const via = listener();
+		if (via === "browser") return startBrowser(opts);
+		if (!via) throw fail("unavailable", noListenerNote());
 		if (HUB ? hub.state === "ok" && !hub.status.speech : !cfg.speechKey.trim())
 			throw fail("no_key", `To listen, add your speech key ${WHERE}.`);
 		if (
@@ -1317,6 +1332,7 @@ registerProcessor("ak-pcm", AkPcm);`;
 	async function stop() {
 		const r = run;
 		if (!r || phase === "idle" || r.stopping) return;
+		if (r.kind === "browser") return stopBrowser(r);
 		r.stopping = true;
 		setPhase("finishing");
 		closeAudio(r);
@@ -1366,7 +1382,8 @@ registerProcessor("ak-pcm", AkPcm);`;
 	}
 	document.addEventListener("visibilitychange", async () => {
 		const r = run;
-		if (document.visibilityState !== "visible" || !r || phase !== "listening") return;
+		if (document.visibilityState !== "visible" || !r || phase !== "listening" || r.kind === "browser")
+			return;
 		// Back in front. Phones stop the microphone while a page is hidden; computers usually don't.
 		keepAwake(true);
 		if (r.ctx.state !== "running") r.ctx.resume().catch(() => null);
@@ -1397,15 +1414,216 @@ registerProcessor("ak-pcm", AkPcm);`;
 		}
 	});
 
+	/* ---------- listening with the browser's own speech recognition (free) ----------
+	   Chrome, Edge and Safari turn speech into text themselves at no cost: Chrome through Google, Edge
+	   through Microsoft, Safari through Apple. Words only, no voices, one language at a time, and it
+	   stops by itself after a quiet spell or a minute or so, so it is started again until Stop. The
+	   owner wanted to pay for Soniox only on the iPhone: phones use Soniox and computers this, unless
+	   the choice in the box says otherwise. */
+	function recognizer() {
+		return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+	}
+	function sonioxWhere() {
+		return ["phones", "all", "never"].includes(cfg.soniox) ? cfg.soniox : "phones";
+	}
+	// What this device listens with: "soniox", "browser", or "" when it can't.
+	function listener() {
+		const where = sonioxWhere();
+		if (where === "all" || (where === "phones" && isPhone())) return "soniox";
+		return recognizer() ? "browser" : "";
+	}
+	function noListenerNote() {
+		return `This browser can't turn speech into text by itself. Open AllKnowing in Chrome, Edge or Safari, or let this device use Soniox (${WHERE}).`;
+	}
+	function recognizerLang(code) {
+		const c = String(code || "").trim();
+		const own = navigator.language || "";
+		if (!c) return own || "en-AU";
+		if (/^en$/i.test(c)) return /^en-/i.test(own) ? own : "en-AU";
+		if (/^zh$/i.test(c)) return "zh-CN";
+		return c;
+	}
+	function recognizerError(err) {
+		if (err === "not-allowed" || err === "service-not-allowed")
+			return fail(
+				"not_granted",
+				isIOS()
+					? "Speech recognition is blocked for AllKnowing. Allow the microphone and speech recognition when asked, and check Dictation is on (Settings → General → Keyboard), then tap Start."
+					: "The microphone is blocked for this page. Allow it from the padlock in the address bar, then tap Start.",
+			);
+		if (err === "audio-capture") return fail("unavailable", "No microphone was found on this device.");
+		if (err === "network")
+			return fail(
+				"upstream_error",
+				"The browser's speech service couldn't be reached. Check the internet connection, then tap Start.",
+			);
+		if (err === "language-not-supported")
+			return fail("unavailable", "This browser can't listen in that language. Pick another in the list.");
+		return fail("upstream_error", "Couldn't start listening. Tap Start to try again.");
+	}
+	const CJK = /[\u3000-\u9fff\uac00-\ud7af\uff00-\uffef]/;
+	// Phrases come without the space between them; Chinese, Japanese and Korean want none.
+	function spaced(before, text) {
+		const t = String(text || "");
+		if (!before || !t || /\s$/.test(before) || /^\s/.test(t)) return t;
+		if (CJK.test(before.slice(-1)) || CJK.test(t[0])) return t;
+		return ` ${t}`;
+	}
+	// Called straight from the tap: the recognizer has to be started inside it.
+	function startBrowser(opts) {
+		const SR = recognizer();
+		const r = { kind: "browser", opts, stopping: false, said: "", lastAt: 0, error: "", fast: 0 };
+		run = r;
+		setPhase("starting");
+		keepAwake(true);
+		return new Promise((resolve, reject) => {
+			let begun = false;
+			const begin = () => {
+				const rec = new SR();
+				r.rec = rec;
+				r.beganAt = Date.now();
+				rec.lang = recognizerLang(opts.language);
+				rec.continuous = true;
+				rec.interimResults = true;
+				rec.maxAlternatives = 1;
+				rec.onstart = () => {
+					if (run !== r || begun) return;
+					begun = true;
+					setPhase("listening");
+					resolve();
+				};
+				rec.onresult = (ev) => {
+					if (run !== r || r.rec !== rec) return;
+					r.fast = 0;
+					let interim = "";
+					for (let i = ev.resultIndex; i < ev.results.length; i++) {
+						const res = ev.results[i];
+						const text = ((res && res[0] && res[0].transcript) || "").replace(/\s+/g, " ");
+						if (!text.trim()) continue;
+						if (res.isFinal) {
+							const out = spaced(r.said, text);
+							r.said = (r.said + out).slice(-200);
+							const now = Date.now();
+							emit("final", { text: out, voice: 0, gap: r.lastAt ? now - r.lastAt : 0 });
+							r.lastAt = now;
+						} else interim += text;
+					}
+					emit("partial", { text: interim ? spaced(r.said, interim).trim() : "" });
+				};
+				rec.onerror = (ev) => {
+					if (r.rec === rec) r.error = (ev && ev.error) || "error";
+				};
+				rec.onend = () => {
+					if (r.rec !== rec) return;
+					const err = r.error;
+					r.error = "";
+					if (run !== r) return;
+					if (r.stopping) {
+						if (r.ended) r.ended();
+						return;
+					}
+					if (!begun) {
+						run = null;
+						keepAwake(false);
+						setPhase("idle");
+						reject(recognizerError(err));
+						return;
+					}
+					if (err === "not-allowed" || err === "service-not-allowed" || err === "audio-capture") {
+						const e = recognizerError(err);
+						haltBrowser(r, e.code, e.userMessage);
+						return;
+					}
+					// A phone puts a hidden page's microphone away: say so, as with Soniox.
+					if (document.visibilityState !== "visible" && isPhone()) {
+						haltBrowser(r, "hidden");
+						return;
+					}
+					// Ending again and again straight after starting: the service isn't there.
+					r.fast = Date.now() - r.beganAt < 1500 ? r.fast + 1 : 0;
+					if (r.fast > 5) {
+						haltBrowser(
+							r,
+							"upstream_error",
+							"The browser's speech service keeps stopping. Check the internet connection, then tap Resume.",
+						);
+						return;
+					}
+					// It stopped by itself (a quiet spell, its time limit, a network blip): carry on.
+					setTimeout(
+						() => {
+							if (run !== r || r.stopping) return;
+							try {
+								begin();
+							} catch {
+								haltBrowser(r, "upstream_error", "Listening stopped. Tap Resume to carry on.");
+							}
+						},
+						err === "network" ? 1500 : 200,
+					);
+				};
+				rec.start();
+			};
+			try {
+				begin();
+			} catch {
+				run = null;
+				keepAwake(false);
+				setPhase("idle");
+				reject(fail("unavailable", noListenerNote()));
+			}
+		});
+	}
+	function haltBrowser(r, reason, message) {
+		if (run !== r) return;
+		r.stopping = true;
+		try {
+			if (r.rec) r.rec.abort();
+		} catch {
+			/* already stopped */
+		}
+		emit("partial", { text: "" });
+		run = null;
+		keepAwake(false);
+		tell(missing());
+		setPhase("idle", reason, message);
+	}
+	async function stopBrowser(r) {
+		r.stopping = true;
+		setPhase("finishing");
+		const ended = new Promise((resolve) => {
+			r.ended = resolve;
+		});
+		try {
+			r.rec.stop();
+		} catch {
+			/* already stopped */
+		}
+		await Promise.race([ended, sleep(2500)]);
+		emit("partial", { text: "" });
+		if (run === r) run = null;
+		keepAwake(false);
+		tell(missing());
+		setPhase("idle", "stopped");
+	}
+
 	// Browsers only let a page use the microphone over a secure link (https, or this computer itself).
 	function insecureNote() {
 		const ts = hub.status && hub.status.links && hub.status.links.ts;
 		return `This link can't use the microphone: browsers only allow it over a secure link. To listen on this device, open ${ts || "the Mac mini's Tailscale link (https://…ts.net)"} instead${ts ? " (it needs Tailscale on this device)" : ""}. Reading, preparing and importing work here.`;
 	}
 	const dictation = {
-		voices: true,
+		// Soniox tells the voices apart; the browser's own recognition doesn't.
+		get voices() {
+			return listener() === "soniox";
+		},
+		// What this device listens with, so the page can say whether it costs anything.
+		get via() {
+			return listener();
+		},
 		get unavailable() {
-			return HUB && !window.isSecureContext ? insecureNote() : "";
+			if (HUB && !window.isSecureContext) return insecureNote();
+			return listener() ? "" : noListenerNote();
 		},
 		onPartial: (fn) => heard.partial.push(fn),
 		onFinal: (fn) => heard.final.push(fn),
@@ -1455,7 +1673,10 @@ registerProcessor("ak-pcm", AkPcm);`;
 	/* ---------- the “This device” box on the Home screen ---------- */
 	async function testClaude() {
 		if (HUB) {
-			if (hub.state === "ok" && !hub.status.claude) return "Paste a key first.";
+			if (hub.state === "ok" && !hub.status.claude)
+				return hub.status.claudeVia === "plan"
+					? "Claude Code on the Mac mini isn't ready yet: see above."
+					: "Paste a key first.";
 		} else if (viaMac()) {
 			const mac = macTarget();
 			if (!mac)
@@ -1481,9 +1702,9 @@ registerProcessor("ak-pcm", AkPcm);`;
 		} else if (!cfg.claudeKey.trim()) return "Paste a key first.";
 		try {
 			await ask("Reply with the single word OK.", { modelTier: "quick" });
-			return !HUB && viaMac()
-				? "Works. Claude answers through your Mac, on your plan."
-				: "Works.";
+			if (HUB && hub.status.claudeVia === "plan")
+				return "Works. Claude answers through Claude Code on your Mac mini, on your plan.";
+			return !HUB && viaMac() ? "Works. Claude answers through your Mac, on your plan." : "Works.";
 		} catch (e) {
 			return (e && e.userMessage) || `Didn't work (${(e && e.code) || "error"}).`;
 		}
@@ -1710,12 +1931,13 @@ registerProcessor("ak-pcm", AkPcm);`;
 					el(
 						"span",
 						null,
-						"Turns sound into words and tells the voices apart. From ",
+						"Soniox turns sound into words and tells the voices apart, about US$0.12 an hour. It listens on the devices chosen below (phones, to start with); the others use the browser's own speech recognition, free. From ",
 						link("https://console.soniox.com", "console.soniox.com"),
 						". It hears the audio.",
 					),
 					testSpeech,
 				),
+				listenChoice(),
 				el(
 					"div",
 					{ class: "two" },
@@ -1759,6 +1981,47 @@ registerProcessor("ak-pcm", AkPcm);`;
 					),
 				),
 			),
+		);
+	}
+
+	// Which devices listen with Soniox. Kept on each device, since it's about the device in hand; the
+	// page reads the listener once when it opens, so a change reloads it.
+	function listenChoice() {
+		const now = listener();
+		const says = el(
+			"span",
+			{ class: "small-text muted" },
+			now === "soniox"
+				? "This device listens with Soniox."
+				: now === "browser"
+					? "This device listens with the browser's own speech recognition, free (the browser's maker, such as Google, Apple or Microsoft, turns the sound into words)."
+					: "This browser can't listen by itself: choose Soniox for it, or use Chrome, Edge or Safari.",
+		);
+		const sel = el(
+			"select",
+			{ id: "akSonioxWhere" },
+			[
+				["phones", "On phones and iPads only"],
+				["all", "On every device"],
+				["never", "Never"],
+			].map(([v, l]) => el("option", { value: v, selected: sonioxWhere() === v }, l)),
+		);
+		sel.addEventListener("change", () => {
+			if (phase !== "idle") {
+				sel.value = sonioxWhere();
+				says.textContent = "Stop listening first, then change this.";
+				return;
+			}
+			cfg.soniox = sel.value;
+			saveCfg();
+			location.reload();
+		});
+		return el(
+			"div",
+			{ class: "field" },
+			el("label", { for: "akSonioxWhere" }, "Use Soniox for listening"),
+			sel,
+			says,
 		);
 	}
 
@@ -2057,6 +2320,107 @@ registerProcessor("ak-pcm", AkPcm);`;
 		}, 4000);
 		return box;
 	}
+	// Claude on the Mac mini: through the owner's Claude plan (Claude Code there), or an API key.
+	// What the last Check of Claude Code on the Mac mini said. Checking refreshes the box, which draws it
+	// afresh, so the answer is kept here and shown for a minute in place of the usual line.
+	let planNote = null;
+	function hubClaudeBlock(st) {
+		const via = st.claudeVia === "key" ? "key" : "plan";
+		const choose = (value) => async () => {
+			planNote = null;
+			try {
+				const res = await hubOk("/api/keys", {
+					method: "PUT",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ claudeVia: value }),
+				});
+				hub.status = { ...hub.status, ...(await res.json()) };
+			} catch {
+				/* the Mac mini kept the old choice */
+			}
+			tell(missing());
+			redrawCard();
+		};
+		const radio = (value, label) =>
+			el(
+				"label",
+				{ class: "check" },
+				el("input", {
+					type: "radio",
+					name: "akClaudeOn",
+					value,
+					checked: via === value,
+					onchange: choose(value),
+				}),
+				label,
+			);
+		const head = el(
+			"div",
+			{ class: "field" },
+			el("span", { class: "label" }, "Claude"),
+			el(
+				"div",
+				{ class: "stack", style: "gap:6px" },
+				radio("plan", "Through your Claude plan, with Claude Code on the Mac mini: nothing extra to pay"),
+				radio("key", "With a Claude API key: pay as you go"),
+			),
+		);
+		if (via === "key")
+			return [
+				head,
+				hubKeyField(
+					"akHubClaude",
+					"Claude API key",
+					"claudeKey",
+					!!st.claudeKeySaved,
+					el(
+						"span",
+						null,
+						"Writes the summaries, reads and “what to say”. From ",
+						link("https://console.anthropic.com/settings/keys", "console.anthropic.com"),
+						", pay as you go. It sees what was said and your notes.",
+					),
+					testClaude,
+				),
+			];
+		const p = st.plan || null;
+		const apiAuth = !!p && /api|console/i.test(p.authMethod || "");
+		const line = !p
+			? "The Mac mini hasn't checked Claude Code yet. Tap Check."
+			: p.running === false
+				? "The Mac mini's link to Claude Code isn't running. Tap “Get the latest version” below, or run the install line on the Mac mini again."
+				: !p.found
+					? "Claude Code isn't installed on the Mac mini. In Terminal there, run: curl -fsSL https://claude.ai/install.sh | bash   then: claude auth login --claudeai"
+					: !p.loggedIn
+						? "Claude Code on the Mac mini isn't signed in. In Terminal there, run: claude auth login --claudeai"
+						: apiAuth
+							? "Claude Code on the Mac mini is signed in with an API account, so it would bill the API. In Terminal there, run: claude auth logout   then: claude auth login --claudeai"
+							: `Ready: Claude Code${p.version ? ` ${p.version}` : ""} on the Mac mini, signed in with your plan.`;
+		const noted = planNote && Date.now() - planNote.at < 60000 ? planNote.text : "";
+		const status = el("span", { class: "small-text", role: "status" }, noted || line);
+		const check = el("button", { type: "button", class: "btn small ghost" }, "Check");
+		check.addEventListener("click", async () => {
+			check.disabled = true;
+			planNote = { text: "Checking…", at: Date.now() };
+			status.textContent = planNote.text;
+			await refreshStatus();
+			planNote = { text: await testClaude(), at: Date.now() };
+			redrawCard();
+		});
+		return [
+			head,
+			el(
+				"div",
+				{ class: "stack", style: "gap:6px" },
+				el(
+					"p",
+					{ class: "small-text muted", style: "margin:0" },
+					"Writes the summaries, reads and “what to say” from your plan's usage, through Claude Code on the Mac mini. Updates every 30 seconds in a long meeting use a fair bit of it.",
+				),
+				el("div", { class: "row" }, status, check),
+			),
+		];
+	}
 	function hubCard() {
 		const st = hub.status || {};
 		const head = el(
@@ -2102,8 +2466,10 @@ registerProcessor("ak-pcm", AkPcm);`;
 			const code = st.code || hub.code;
 			const L = st.links || {};
 			const pairLink = `${L.ts || L.lan || location.origin}/#pair=${code}`;
-			// Once both keys are in, the details fold away so the box doesn't push everything else down a phone screen.
-			const ready = !!(st.claude && st.speech);
+			// Once Claude and the speech key are in, the details fold away so the box doesn't push everything
+			// else down a phone screen. The speech key counts even where this device doesn't use Soniox, because
+			// the phones do (unless this device says never).
+			const ready = !!(st.claude && (st.speech || sonioxWhere() === "never"));
 			const parts = [];
 			const models = speechBlock(st);
 			if (models && (st.local || {}).state !== "ready") body.append(models);
@@ -2112,28 +2478,12 @@ registerProcessor("ak-pcm", AkPcm);`;
 					"p",
 					{ class: "small-text muted" },
 					ready
-						? "Every device you connect sees the same meetings. Your Claude and speech keys are saved on the Mac mini, which asks Claude for you and hands out a one-use speech key each time a device starts listening."
+						? "Every device you connect sees the same meetings. The Mac mini asks Claude for you and keeps the speech key, handing out a one-use key each time a device starts listening with Soniox."
 						: "Every device you connect sees the same meetings, and the keys stay on the Mac mini: it asks Claude for you, and hands out a one-use speech key each time a device starts listening.",
 				),
 			);
 			parts.push(
-				hubKeyField(
-					"akHubClaude",
-					"Claude API key",
-					"claudeKey",
-					!!st.claude,
-					el(
-						"span",
-						null,
-						"Writes the summaries, reads and “what to say”. From ",
-						link(
-							"https://console.anthropic.com/settings/keys",
-							"console.anthropic.com",
-						),
-						", pay as you go (Max, Ultra and Team plans include monthly API credits). It sees what was said and your notes.",
-					),
-					testClaude,
-				),
+				...hubClaudeBlock(st),
 				hubKeyField(
 					"akHubSpeech",
 					"Speech key (Soniox)",
@@ -2142,12 +2492,13 @@ registerProcessor("ak-pcm", AkPcm);`;
 					el(
 						"span",
 						null,
-						"Turns sound into words and tells the voices apart while you listen live. Recordings you import don't need it: the Mac mini's own free models do those. From ",
+						"Soniox turns sound into words and tells the voices apart, about US$0.12 an hour. It listens on the devices chosen below (phones, to start with); the others use the browser's own speech recognition, free. Recordings you import don't need it: the Mac mini's own free models do those. From ",
 						link("https://console.soniox.com", "console.soniox.com"),
 						". It hears the audio.",
 					),
 					testSpeech,
 				),
+				listenChoice(),
 				el(
 					"div",
 					{ class: "two" },

@@ -2,6 +2,8 @@
 
 The AllKnowing web app on your phone can use Claude through Claude Code on your Mac, signed in with your Claude plan, so you don't need a Claude API key. Listening, and telling the voices apart, still happens on the phone with your Soniox speech key.
 
+Setting AllKnowing up on your Mac mini instead ([its guide](../hub/README.md))? Then you don't need this: the Mac mini runs the same relay by itself, and its installer sets up Claude Code.
+
 ```
 iPhone (AllKnowing) ──Tailscale, HTTPS, your devices only──▶ Mac: relay ──▶ claude -p (your Claude plan)
 ```
@@ -30,7 +32,7 @@ iPhone (AllKnowing) ──Tailscale, HTTPS, your devices only──▶ Mac: rela
 
 - Keep the Mac on and logged in. The relay keeps it from sleeping while it runs.
 - Keep Tailscale connected on the iPhone.
-- What AllKnowing asks counts toward your Claude plan's usage limits. For a long game or meeting, set Live updates to Fast in Settings.
+- What AllKnowing asks counts toward your Claude plan's usage limits. For a long meeting, set Live updates to Fast in Settings.
 - If something stops working, the Check button says why: the Mac is off or unreachable, Claude Code isn't signed in, or the plan's usage limit is reached (with when it resets).
 
 ## Good to know

@@ -1811,7 +1811,8 @@ function bindDictation() {
       renderPartial();
     });
     d.onFinal(({ text, voice }) => (voices ? onFinalText(text, voice) : onFinalText(text)));
-    d.onState(({ state: s, reason, userMessage }) => onDictState(s, reason, voices ? userMessage : ""));
+    // The web app's listeners word their own messages; claude.ai's leaves that to the page.
+    d.onState(({ state: s, reason, userMessage }) => onDictState(s, reason, voices || d.via ? userMessage : ""));
   } catch (e) { console.warn(e); }
 }
 const LISTEN_MSG = {
@@ -1869,8 +1870,14 @@ function askToRecord(m) {
       [h("button", { type: "button", class: "btn primary", onclick: () => md.close() }, "OK")]);
     return;
   }
+  // What listening costs here: the web app says which listener it uses; claude.ai's comes with the plan.
+  const via = d.via;
+  const cost = via === "soniox" ? "Listening with Soniox, which tells voices apart: about US$0.12 an hour."
+    : via === "browser" ? "Listening with this browser's own speech recognition: free."
+    : window.claude && window.claude.standalone ? "" : "Listening with claude.ai's own speech recognition: part of your Claude plan.";
   const md = modal("Start recording?", h("div", { class: "stack", style: "gap:10px" },
     h("p", { style: "margin:0" }, "AllKnowing will listen, write down what's said and help as the meeting goes. It keeps the transcript, not the audio."),
+    cost ? h("p", { class: "muted small-text", style: "margin:0" }, cost) : null,
     h("p", { class: "callout" }, "Let everyone in the meeting know it's listening.")),
     [h("button", { type: "button", class: "btn", onclick: () => md.close() }, "Not yet"),
       // Straight from the click: the browser only lets a page start the microphone from one.

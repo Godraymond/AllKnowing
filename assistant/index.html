@@ -110,7 +110,7 @@ main { padding: 20px; max-width: 1480px; margin: 0 auto; }
 .md ul, .md ol { margin: 0 0 8px; padding-left: 20px; display: grid; gap: 3px; }
 .md h4 { font-family: var(--font-body); font-size: 14px; margin: 8px 0 4px; }
 .status-line { font-size: 13px; color: var(--muted); min-height: 1.4em; }
-.refused { margin: 0; padding: 10px 12px; border-radius: 9px; background: color-mix(in srgb, var(--accent) 7%, var(--surface)); border: 1px solid var(--line); font-size: 14px; }
+.refused, .callout { margin: 0; padding: 10px 12px; border-radius: 9px; background: color-mix(in srgb, var(--accent) 7%, var(--surface)); border: 1px solid var(--line); font-size: 14px; }
 .fix { font-size: 13.5px; color: var(--muted); }
 .fix summary { cursor: pointer; font-weight: 600; color: var(--ink); }
 .fix ol { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 4px; }
@@ -1841,12 +1841,47 @@ function onDictState(s, reason, message) {
   renderChips();
   renderCurrentBox();
 }
+// Where claude.ai won't let the page listen, it gives the page no dictation at all and can't say why. It
+// offers it in a Chromium browser tab (Chrome, Edge) and in the Claude desktop app's main window, so the
+// browser decides which advice fits.
+function noListenWhy() {
+  const ua = navigator.userAgent || "";
+  const ipad = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
+  if (/iPhone|iPad|iPod/.test(ua) || ipad) return "claude.ai can't listen on an iPhone or iPad. The AllKnowing web app can: open it from your Mac mini's link.";
+  if (/Electron\/|Claude\//.test(ua)) return "The Claude app only lets this page listen in its main window, beside a chat. Open AllKnowing from the chat there, not in a separate window, and update the app if it still says this.";
+  if (/Android/.test(ua) && /; wv\)/.test(ua)) return "The Claude app on a phone can't listen. Open claude.ai in Chrome instead, or use the AllKnowing web app.";
+  if (/Firefox\//.test(ua)) return "Firefox can't listen in claude.ai. Open this page in Chrome or Edge, or in the Claude desktop app.";
+  if (/Safari\//.test(ua) && !/Chrome\/|Chromium\/|Edg\//.test(ua)) return "Safari can't listen in claude.ai. Open this page in Chrome or Edge, or in the Claude desktop app.";
+  return "Listening isn't available in this window. Reload the page. It works in Chrome or Edge on a computer, and in the Claude desktop app's main window.";
+}
+// Opening a meeting that hasn't started asks once whether to start recording, so it's a choice made on
+// purpose and a moment to tell the room. Where this window can't listen, it says why instead.
+const askedToRecord = new Set();
+function askToRecord(m) {
+  if (!m || m.startedAt || m.status === "transcribing" || m.source === "import" || isListening() || askedToRecord.has(m.id)) return;
+  if (!state.booted || state.route !== "live" || document.querySelector(".overlay")) return;
+  askedToRecord.add(m.id);
+  const d = cap.dict;
+  if (!d || d.unavailable) {
+    const md = modal("Recording isn't available here", h("div", { class: "stack", style: "gap:10px" },
+      h("p", { style: "margin:0" }, (d && d.unavailable) || noListenWhy()),
+      h("p", { class: "muted", style: "margin:0" }, "You can still type notes below, and AllKnowing works from those.")),
+      [h("button", { type: "button", class: "btn primary", onclick: () => md.close() }, "OK")]);
+    return;
+  }
+  const md = modal("Start recording?", h("div", { class: "stack", style: "gap:10px" },
+    h("p", { style: "margin:0" }, "AllKnowing will listen, write down what's said and help as the meeting goes. It keeps the transcript, not the audio."),
+    h("p", { class: "callout" }, "Let everyone in the meeting know it's listening.")),
+    [h("button", { type: "button", class: "btn", onclick: () => md.close() }, "Not yet"),
+      // Straight from the click: the browser only lets a page start the microphone from one.
+      h("button", { type: "button", class: "btn primary", onclick: () => { md.close(); startListening(); } }, "Start recording")]);
+}
 function startListening() {
   const d = cap.dict;
   const m = state.cur;
   if (!m) return;
   if (m.status === "transcribing") { toast("This meeting's recording is still being turned into text.", "warn", 5000); return; }
-  if (!d) { toast("Dictation needs Chrome or Edge on a computer, or the Claude desktop app. You can still type below.", "warn", 7000); return; }
+  if (!d) { toast(`${noListenWhy()} You can still type below.`, "warn", 9000); return; }
   const lang = listenLang(m);
   state.voiceBase = nextVoiceBase(m);
   let p;
@@ -2103,6 +2138,8 @@ function renderLive() {
   if (state.aiStatus && state.aiStatus.text) setAiStatus(state.aiStatus.text, state.aiStatus.kind);
   else setAiStatus(cap.sample ? (m.live ? `Last update ${clockTime(m.liveAt)}` : "The picture updates once people start talking.") : "Claude isn't available in this view.", "");
   if (m.startedAt) ensureClock(); else tickClock();
+  // Once the screen is up (and capabilities may still be arriving), ask whether to start recording.
+  setTimeout(() => askToRecord(state.cur), 0);
 }
 function renderListenUI() {
   const btn = $("#listenBtn");
@@ -2125,7 +2162,7 @@ function renderListenUI() {
     if (state.listenNote) note.append(h("div", { class: "banner" }, h("span", null, state.listenNote)));
     // A listener can say up front why it can't listen here (the web app on a link that isn't secure).
     else if (cap.dict && cap.dict.unavailable) note.append(h("div", { class: "banner" }, h("span", null, cap.dict.unavailable)));
-    else if (!cap.dict) note.append(h("div", { class: "banner" }, h("span", null, "Listening needs Chrome or Edge on a computer, or the Claude desktop app. Meanwhile, type below, or turn on “Add typed text automatically” and use your computer's own dictation (Win+H on Windows, press Fn twice on a Mac).")));
+    else if (!cap.dict) note.append(h("div", { class: "banner" }, h("span", null, `${noListenWhy()} Meanwhile, type below, or turn on “Add typed text automatically” and use your computer's own dictation (Win+H on Windows, press Fn twice on a Mac).`)));
   }
 }
 function segEl(s) {
